@@ -30,42 +30,31 @@ jobs:
           cordova create app com.thermo.hmi "Thermoforming HMI"
           cd app
           cp ../index.html www/index.html
+          if [ -f ../logo.png ]; then cp ../logo.png www/logo.png; fi
+          if [ -f ../icon.png ]; then cp ../icon.png icon.png; fi
 
-          # 1. አይከኑ ዙሪያው ያለው ባዶ ቦታ ተቆርጦ ሳጥኑን ሙሉ በሙሉ እንዲሸፍን ማስተካከያ
-          if [ -f ../icon.png ]; then
-            pip install pillow
-            python3 - <<'PY'
-          from PIL import Image
+          python3 - <<'PY'
+          import os
 
-          img = Image.open("../icon.png").convert("RGBA")
-          bbox = img.getbbox()
-          if bbox:
-              img = img.crop(bbox)
+          with open('config.xml', 'r', encoding='utf-8') as f:
+              xml = f.read()
 
-          size = 1024
-          img = img.resize((size, size), Image.Resampling.LANCZOS)
+          prefs = (
+              '    <preference name="Orientation" value="sensorLandscape" />\n'
+              '    <preference name="Fullscreen" value="true" />\n'
+              '    <preference name="android-minSdkVersion" value="24" />\n'
+              '    <preference name="android-targetSdkVersion" value="30" />\n'
+          )
+          if os.path.exists('icon.png'):
+              prefs += '    <icon src="icon.png" />\n'
 
-          canvas = Image.new("RGBA", (size, size), (0, 0, 0, 255))
-          zoom_size = int(size * 1.15)
-          zoomed = img.resize((zoom_size, zoom_size), Image.Resampling.LANCZOS)
-          offset = (size - zoom_size) // 2
-          canvas.paste(zoomed, (offset, offset), zoomed)
-          canvas.save("icon_full.png")
+          xml = xml.replace('</widget>', prefs + '</widget>')
+          with open('config.xml', 'w', encoding='utf-8') as f:
+              f.write(xml)
           PY
-            sed -i 's#</widget>#<platform name="android"><icon background="icon_full.png" foreground="icon_full.png" src="icon_full.png" /></platform></widget>#' config.xml
-          fi
 
-          # 2. አፑ ሲከፈት (Splash Screen) የራስህ ሎጎ እንዲታይ ማስተካከያ
-          if [ -f ../logo.png ]; then
-            cp ../logo.png www/logo.png
-            cp ../logo.png splash.png
-            sed -i 's#</widget>#<preference name="AndroidWindowSplashScreenAnimatedIcon" value="splash.png" /><preference name="AndroidWindowSplashScreenBackground" value="#121822" /></widget>#' config.xml
-          fi
-
-          sed -i 's#</widget>#<preference name="Orientation" value="sensorLandscape" /><preference name="Fullscreen" value="true" /><preference name="android-minSdkVersion" value="24" /><preference name="android-targetSdkVersion" value="30" /></widget>#' config.xml
           cordova platform add android@13
           cordova plugin add cordovarduino
-          cordova plugin add cordova-plugin-insomnia
           python3 - <<'PY'
           import glob
 
@@ -138,7 +127,7 @@ jobs:
           PY
           cordova build android --debug || {
             echo "Build with targetSdk 30 failed - retrying with the default target SDK"
-            sed -i 's#<preference name="android-targetSdkVersion" value="30" />##' config.xml
+            python3 -c "p='config.xml'; s=open(p).read().replace('<preference name=\"android-targetSdkVersion\" value=\"30\" />\n',''); open(p,'w').write(s)"
             cordova build android --debug
           }
 

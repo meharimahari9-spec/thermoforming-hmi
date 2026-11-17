@@ -1,0 +1,123 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build debug APK (Cordova creates the Android project and runs Gradle)
+        run: |
+          npm install -g cordova
+          cordova create app com.thermo.hmi "Thermoforming HMI"
+          cd app
+          cp ../index.html www/index.html
+          if [ -f ../logo.png ]; then cp ../logo.png www/logo.png; fi
+          if [ -f ../icon.png ]; then
+            cp ../icon.png icon.png
+            sed -i 's#</widget>#<icon src="icon.png" /></widget>#' config.xml
+          fi
+          sed -i 's#</widget>#<preference name="Orientation" value="sensorLandscape" /><preference name="Fullscreen" value="true" /><preference name="android-minSdkVersion" value="24" /><preference name="android-targetSdkVersion" value="30" /></widget>#' config.xml
+          cordova platform add android@13
+          cordova plugin add cordovarduino
+          cordova plugin add cordova-plugin-insomnia
+          python3 - <<'PY'
+          import glob
+
+          def rewrite(src, token, fn):
+              out, i = '', 0
+              while True:
+                  j = src.find(token, i)
+                  if j < 0:
+                      return out + src[i:]
+                  k = j + len(token)
+                  depth, p = 1, k
+                  while p < len(src) and depth:
+                      if src[p] == '(':
+                          depth += 1
+                      elif src[p] == ')':
+                          depth -= 1
+                      p += 1
+                  out += src[i:j] + fn(src[k:p-1])
+                  i = p
+
+          def split_args(s):
+              args, depth, cur = [], 0, ''
+              for ch in s:
+                  if ch == ',' and depth == 0:
+                      args.append(cur)
+                      cur = ''
+                      continue
+                  if ch in '([{':
+                      depth += 1
+                  if ch in ')]}':
+                      depth -= 1
+                  cur += ch
+              args.append(cur)
+              return [a.strip() for a in args]
+
+          def fix_pending(inner):
+              a = split_args(inner)
+              if len(a) != 4:
+                  return 'PendingIntent.getBroadcast(' + inner + ')'
+              ctx, req, intent, flags = a
+              if 'setPackage' not in intent:
+                  intent += '.setPackage(' + ctx + '.getPackageName())'
+              if '0x02000000' not in flags and 'FLAG_MUTABLE' not in flags and 'FLAG_IMMUTABLE' not in flags:
+                  flags = '0x02000000' if flags in ('0', '') else '0x02000000 | ' + flags
+              return 'PendingIntent.getBroadcast(' + ', '.join([ctx, req, intent, flags]) + ')'
+
+          def fix_receiver(inner):
+              a = split_args(inner)
+              if len(a) == 2:
+                  return '.registerReceiver(' + inner + ', 4)'
+              return '.registerReceiver(' + inner + ')'
+
+          files = [f for f in glob.glob('plugins/**/*.java', recursive=True) + glob.glob('platforms/**/*.java', recursive=True)
+                   if 'serial' in f.lower() or 'drangies' in f.lower()]
+          done = 0
+          for f in files:
+              s = open(f, encoding='utf-8', errors='ignore').read()
+              if 'PendingIntent' not in s and 'registerReceiver' not in s:
+                  continue
+              t = rewrite(s, 'PendingIntent.getBroadcast(', fix_pending)
+              t = rewrite(t, '.registerReceiver(', fix_receiver)
+              if t != s:
+                  open(f, 'w', encoding='utf-8').write(t)
+                  print('USB PATCH APPLIED:', f)
+                  done += 1
+              else:
+                  print('USB patch: nothing to change in', f)
+          if not done:
+              print('WARNING: USB patch changed nothing (source differs from what was expected)')
+          PY
+          cordova build android --debug || {
+            echo "Build with targetSdk 30 failed - retrying with the default target SDK"
+            sed -i 's#<preference name="android-targetSdkVersion" value="30" />##' config.xml
+            cordova build android --debug
+          }
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: thermoforming-hmi-apk
+          path: app/platforms/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

@@ -31,59 +31,20 @@ jobs:
           cd app
           cp ../index.html www/index.html
           if [ -f ../logo.png ]; then cp ../logo.png www/logo.png; fi
-          if [ -f ../icon.png ]; then cp ../icon.png icon.png; fi
-
-          python3 - <<'PY'
-          import os
-
-          with open('config.xml', 'r', encoding='utf-8') as f:
-              xml = f.read()
-
-          prefs = (
-              '    <preference name="Orientation" value="sensorLandscape" />\n'
-              '    <preference name="Fullscreen" value="true" />\n'
-              '    <preference name="android-minSdkVersion" value="24" />\n'
-              '    <preference name="android-targetSdkVersion" value="30" />\n'
-          )
-
-          if os.path.exists('icon.png'):
-              try:
-                  from PIL import Image
-                  img = Image.open('icon.png').convert('RGBA')
-                  w, h = img.size
-                  # አይከኑ ሙሉ በሙሉ እንዲሞላ ጠርዙን በመቁረጥ (Center Crop) ማስተካከል
-                  m = min(w, h)
-                  crop_m = int(m * 0.72)
-                  left = (w - crop_m) // 2
-                  top = (h - crop_m) // 2
-                  full_icon = img.crop((left, top, left + crop_m, top + crop_m)).resize((512, 512), Image.LANCZOS)
-                  full_icon.save('icon_full.png')
-
-                  # መክፈቻ ስክሪን (Splash Screen) ላይ ሎጎው በጥቁር ዳራ እንዲታይ ማዘጋጀት
-                  splash = Image.new('RGBA', (512, 512), (18, 25, 38, 255))
-                  logo_s = img.resize((360, 360), Image.LANCZOS)
-                  splash.paste(logo_s, (76, 76), logo_s)
-                  splash.save('splash.png')
-
-                  prefs += (
-                      '    <icon src="icon_full.png" />\n'
-                      '    <preference name="AndroidWindowSplashScreenAnimatedIcon" value="splash.png" />\n'
-                      '    <preference name="AndroidWindowSplashScreenBackground" value="#121926" />\n'
-                  )
-              except Exception as e:
-                  prefs += (
-                      '    <icon src="icon.png" />\n'
-                      '    <preference name="AndroidWindowSplashScreenAnimatedIcon" value="icon.png" />\n'
-                      '    <preference name="AndroidWindowSplashScreenBackground" value="#121926" />\n'
-                  )
-
-          xml = xml.replace('</widget>', prefs + '</widget>')
-          with open('config.xml', 'w', encoding='utf-8') as f:
-              f.write(xml)
-          PY
-
+          mkdir -p res
+          SRC=""
+          if [ -f ../icon.png ]; then SRC=../icon.png; elif [ -f ../logo.png ]; then SRC=../logo.png; fi
+          if [ -n "$SRC" ]; then
+            IM=$(command -v magick || command -v convert)
+            $IM "$SRC" -resize 280x280 -background none -gravity center -extent 432x432 res/icon-fg.png
+            $IM -size 432x432 xc:black res/icon-bg.png
+            cp "$SRC" res/icon-legacy.png
+            sed -i 's#</widget>#<platform name="android"><icon src="res/icon-legacy.png" density="xxxhdpi" /><icon background="res/icon-bg.png" foreground="res/icon-fg.png" density="xxxhdpi" /></platform><preference name="AndroidWindowSplashScreenAnimatedIcon" value="res/icon-fg.png" /></widget>#' config.xml
+          fi
+          sed -i 's#</widget>#<preference name="AndroidWindowSplashScreenBackground" value="\#0b1522" /><preference name="Orientation" value="sensorLandscape" /><preference name="Fullscreen" value="true" /><preference name="android-minSdkVersion" value="24" /><preference name="android-targetSdkVersion" value="30" /></widget>#' config.xml
           cordova platform add android@13
           cordova plugin add cordovarduino
+          cordova plugin add cordova-plugin-insomnia
           python3 - <<'PY'
           import glob
 
@@ -156,7 +117,7 @@ jobs:
           PY
           cordova build android --debug || {
             echo "Build with targetSdk 30 failed - retrying with the default target SDK"
-            python3 -c "p='config.xml'; s=open(p).read().replace('<preference name=\"android-targetSdkVersion\" value=\"30\" />\n',''); open(p,'w').write(s)"
+            sed -i 's#<preference name="android-targetSdkVersion" value="30" />##' config.xml
             cordova build android --debug
           }
 

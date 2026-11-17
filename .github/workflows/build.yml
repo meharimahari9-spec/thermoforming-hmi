@@ -24,29 +24,76 @@ jobs:
         with:
           node-version: 20
 
-      - name: Build debug APK (Cordova creates the Android project and runs Gradle)
+      - name: Install Cordova
         run: |
           npm install -g cordova
-          cordova telemetry off
+          node -v
+          cordova --version
+
+      - name: Prepare the Cordova project (no template download)
+        run: |
           rm -rf app
-          cordova create app com.thermo.hmi "Thermoforming HMI" --no-telemetry || { echo "=== cordova create failed, retrying with --verbose ==="; rm -rf app; cordova create app com.thermo.hmi "Thermoforming HMI" --no-telemetry --verbose; }
-          cd app
-          cp ../index.html www/index.html
-          if [ -f ../logo.png ]; then cp ../logo.png www/logo.png; fi
-          mkdir -p res
+          mkdir -p app/www app/res
+          cp index.html app/www/index.html
+          if [ -f logo.png ]; then cp logo.png app/www/logo.png; fi
+
           SRC=""
-          if [ -f ../icon.png ]; then SRC=../icon.png; elif [ -f ../logo.png ]; then SRC=../logo.png; fi
+          if [ -f icon.png ]; then SRC=icon.png; elif [ -f logo.png ]; then SRC=logo.png; fi
+
+          ICONS=""
+          SPLASH=""
           if [ -n "$SRC" ]; then
+            if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+              sudo apt-get update && sudo apt-get install -y imagemagick
+            fi
             IM=$(command -v magick || command -v convert)
-            $IM "$SRC" -resize 400x400 -background none -gravity center -extent 432x432 res/icon-fg.png
-            $IM -size 432x432 xc:black res/icon-bg.png
-            cp "$SRC" res/icon-legacy.png
-            sed -i 's#</widget>#<platform name="android"><icon src="res/icon-legacy.png" density="xxxhdpi" /><icon background="res/icon-bg.png" foreground="res/icon-fg.png" density="xxxhdpi" /></platform><preference name="AndroidWindowSplashScreenAnimatedIcon" value="res/icon-fg.png" /></widget>#' config.xml
+            $IM "$SRC" -resize 280x280 -background none -gravity center -extent 432x432 app/res/icon-fg.png
+            $IM -size 432x432 xc:black app/res/icon-bg.png
+            cp "$SRC" app/res/icon-legacy.png
+            ICONS='<icon src="res/icon-legacy.png" density="xxxhdpi" /><icon background="res/icon-bg.png" foreground="res/icon-fg.png" density="xxxhdpi" />'
+            SPLASH='<preference name="AndroidWindowSplashScreenAnimatedIcon" value="res/icon-fg.png" />'
           fi
-          sed -i 's|</widget>|<preference name="AndroidWindowSplashScreenBackground" value="#0b1522" /><preference name="Orientation" value="sensorLandscape" /><preference name="Fullscreen" value="true" /><preference name="android-minSdkVersion" value="24" /><preference name="android-targetSdkVersion" value="30" /></widget>|' config.xml
-          cordova platform add android@13 --no-telemetry
-          cordova plugin add cordovarduino --no-telemetry
-          cordova plugin add cordova-plugin-insomnia --no-telemetry
+
+          cat > app/config.xml <<EOF
+          <?xml version='1.0' encoding='utf-8'?>
+          <widget id="com.thermo.hmi" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
+            <name>Thermoforming HMI</name>
+            <description>Thermoforming machine HMI</description>
+            <author email="info@example.com" href="https://example.com">Gear EM Engineering</author>
+            <content src="index.html" />
+            <preference name="Orientation" value="sensorLandscape" />
+            <preference name="Fullscreen" value="true" />
+            <preference name="AndroidWindowSplashScreenBackground" value="#0b1522" />
+            <preference name="android-minSdkVersion" value="24" />
+            <preference name="android-targetSdkVersion" value="30" />
+            $SPLASH
+            <platform name="android">
+              $ICONS
+            </platform>
+          </widget>
+          EOF
+
+          cat > app/package.json <<EOF
+          {
+            "name": "com.thermo.hmi",
+            "displayName": "Thermoforming HMI",
+            "version": "1.0.0"
+          }
+          EOF
+
+          echo "---- config.xml ----"
+          cat app/config.xml
+
+      - name: Add Android platform and plugins
+        working-directory: app
+        run: |
+          cordova platform add android@13
+          cordova plugin add cordovarduino
+          cordova plugin add cordova-plugin-insomnia
+
+      - name: Patch the USB plugin for new Android versions
+        working-directory: app
+        run: |
           python3 - <<'PY'
           import glob
 
@@ -117,10 +164,14 @@ jobs:
           if not done:
               print('WARNING: USB patch changed nothing (source differs from what was expected)')
           PY
-          cordova build android --debug --no-telemetry || {
+
+      - name: Build debug APK
+        working-directory: app
+        run: |
+          cordova build android --debug || {
             echo "Build with targetSdk 30 failed - retrying with the default target SDK"
-            sed -i 's#<preference name="android-targetSdkVersion" value="30" />##' config.xml
-            cordova build android --debug --no-telemetry
+            sed -i '/android-targetSdkVersion/d' config.xml
+            cordova build android --debug
           }
 
       - name: Upload APK

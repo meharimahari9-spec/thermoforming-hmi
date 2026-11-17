@@ -27,8 +27,9 @@ jobs:
       - name: Build debug APK (Cordova creates the Android project and runs Gradle)
         run: |
           npm install -g cordova
+          cordova telemetry off
           rm -rf app
-          cordova create app com.thermo.hmi "Thermoforming HMI" || { echo "=== cordova create failed, retrying with --verbose ==="; rm -rf app; cordova create app com.thermo.hmi "Thermoforming HMI" --verbose; }
+          cordova create app com.thermo.hmi "Thermoforming HMI" --no-telemetry || { echo "=== cordova create failed, retrying with --verbose ==="; rm -rf app; cordova create app com.thermo.hmi "Thermoforming HMI" --no-telemetry --verbose; }
           cd app
           cp ../index.html www/index.html
           if [ -f ../logo.png ]; then cp ../logo.png www/logo.png; fi
@@ -43,9 +44,9 @@ jobs:
             sed -i 's#</widget>#<platform name="android"><icon src="res/icon-legacy.png" density="xxxhdpi" /><icon background="res/icon-bg.png" foreground="res/icon-fg.png" density="xxxhdpi" /></platform><preference name="AndroidWindowSplashScreenAnimatedIcon" value="res/icon-fg.png" /></widget>#' config.xml
           fi
           sed -i 's|</widget>|<preference name="AndroidWindowSplashScreenBackground" value="#0b1522" /><preference name="Orientation" value="sensorLandscape" /><preference name="Fullscreen" value="true" /><preference name="android-minSdkVersion" value="24" /><preference name="android-targetSdkVersion" value="30" /></widget>|' config.xml
-          cordova platform add android@13
-          cordova plugin add cordovarduino
-          cordova plugin add cordova-plugin-insomnia
+          cordova platform add android@13 --no-telemetry
+          cordova plugin add cordovarduino --no-telemetry
+          cordova plugin add cordova-plugin-insomnia --no-telemetry
           python3 - <<'PY'
           import glob
 
@@ -116,10 +117,10 @@ jobs:
           if not done:
               print('WARNING: USB patch changed nothing (source differs from what was expected)')
           PY
-          cordova build android --debug || {
+          cordova build android --debug --no-telemetry || {
             echo "Build with targetSdk 30 failed - retrying with the default target SDK"
             sed -i 's#<preference name="android-targetSdkVersion" value="30" />##' config.xml
-            cordova build android --debug
+            cordova build android --debug --no-telemetry
           }
 
       - name: Upload APK

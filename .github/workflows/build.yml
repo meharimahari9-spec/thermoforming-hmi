@@ -30,11 +30,38 @@ jobs:
           cordova create app com.thermo.hmi "Thermoforming HMI"
           cd app
           cp ../index.html www/index.html
-          if [ -f ../logo.png ]; then cp ../logo.png www/logo.png; fi
+
+          # 1. አይከኑ ዙሪያው ያለው ባዶ ቦታ ተቆርጦ ሳጥኑን ሙሉ በሙሉ እንዲሸፍን ማስተካከያ
           if [ -f ../icon.png ]; then
-            cp ../icon.png icon.png
-            sed -i 's#</widget>#<icon src="icon.png" /></widget>#' config.xml
+            pip install pillow
+            python3 - <<'PY'
+          from PIL import Image
+
+          img = Image.open("../icon.png").convert("RGBA")
+          bbox = img.getbbox()
+          if bbox:
+              img = img.crop(bbox)
+
+          size = 1024
+          img = img.resize((size, size), Image.Resampling.LANCZOS)
+
+          canvas = Image.new("RGBA", (size, size), (0, 0, 0, 255))
+          zoom_size = int(size * 1.15)
+          zoomed = img.resize((zoom_size, zoom_size), Image.Resampling.LANCZOS)
+          offset = (size - zoom_size) // 2
+          canvas.paste(zoomed, (offset, offset), zoomed)
+          canvas.save("icon_full.png")
+          PY
+            sed -i 's#</widget>#<platform name="android"><icon background="icon_full.png" foreground="icon_full.png" src="icon_full.png" /></platform></widget>#' config.xml
           fi
+
+          # 2. አፑ ሲከፈት (Splash Screen) የራስህ ሎጎ እንዲታይ ማስተካከያ
+          if [ -f ../logo.png ]; then
+            cp ../logo.png www/logo.png
+            cp ../logo.png splash.png
+            sed -i 's#</widget>#<preference name="AndroidWindowSplashScreenAnimatedIcon" value="splash.png" /><preference name="AndroidWindowSplashScreenBackground" value="#121822" /></widget>#' config.xml
+          fi
+
           sed -i 's#</widget>#<preference name="Orientation" value="sensorLandscape" /><preference name="Fullscreen" value="true" /><preference name="android-minSdkVersion" value="24" /><preference name="android-targetSdkVersion" value="30" /></widget>#' config.xml
           cordova platform add android@13
           cordova plugin add cordovarduino

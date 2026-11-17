@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Thermoforming HMI</title>
+<script src="cordova.js"></script>
+<style>
+:root{--bg:#0b1522;--p:#121e30;--p2:#16253a;--ln:#22344f;--tx:#dbe7f5;--dim:#8497b0;
+--go:#38e2a0;--blue:#5ea8ff;--red:#f04b5f;--yel:#ffcf4a;--org:#ff7a59;--vio:#a77bff;--teal:#2fd6c4}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);overflow:hidden;
+font-family:"Barlow Condensed","Roboto Condensed","Arial Narrow",system-ui,sans-serif}
+#app{position:fixed;top:0;left:0;width:1160px;height:500px;transform-origin:0 0;display:grid;grid-template-rows:auto 1fr auto;gap:8px;padding:8px}
+.card{background:var(--p);border:1px solid var(--ln);border-radius:12px}
+button{font:inherit;color:#fff;border:0;cursor:pointer}
+button:active{filter:brightness(1.2);transform:translateY(2px)}
+button:disabled{opacity:.35;pointer-events:none}
+/* header */
+#top{display:flex;align-items:center;gap:4px;padding:6px 8px;min-width:0}
+#logo{width:38px;height:38px;margin-right:4px;border-radius:50%;object-fit:cover}
+#top h1{margin:0;font-size:15px;white-space:nowrap;letter-spacing:.3px;line-height:1.05}
+#top small{display:block;letter-spacing:.6px;margin-top:2px;font-size:11.5px;color:var(--dim)}
+.sp{flex:1}
+.chip{background:var(--p2);border:1px solid var(--ln);border-radius:20px;padding:5px 7px;font-size:12.5px;color:var(--dim);white-space:nowrap}
+.chip b{color:var(--go)}
+button.chip{color:var(--tx)} button.chip b{color:var(--yel)}
+#usbDot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--red);margin-right:4px}
+#state{background:var(--blue);border-radius:20px;padding:6px 14px;font-weight:700;font-size:17px;color:#fff}
+#state.run{background:var(--go);color:#06281d}#state.fault{background:var(--red)}
+/* middle */
+#mid{display:grid;grid-template-columns:1.3fr 1fr;gap:8px;min-height:0}
+#mimicWrap{display:grid;grid-template-rows:1fr auto;gap:6px;padding:8px;min-height:0}
+#mimic{width:100%;height:100%;min-height:0}
+#tools{display:grid;grid-template-columns:repeat(6,1fr);gap:5px}
+.tool{background:var(--p2);border-radius:9px;padding:5px 9px;border-left:4px solid var(--c);font-size:13px;color:var(--dim);transition:.2s}
+.tool b{display:block;font-size:19px;color:var(--tx)}
+.tool.hot{background:#6a3326;border-left-color:#ff7a59}
+.tool.on{background:var(--c)}.tool.on,.tool.on b{color:#101826}
+#info{padding:8px 12px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.lbl{font-size:14px;color:var(--dim)}
+#step{font-size:32px;font-weight:700;color:var(--blue);margin:0 0 4px}
+#bar{height:5px;background:var(--p2);border-radius:3px;margin-bottom:7px}#bar i{display:block;height:100%;width:0;background:var(--go);border-radius:3px}
+#steps{list-style:none;margin:0 0 6px;padding:0;font-size:20px;font-weight:600;color:#c4d0e0;flex:1.25;min-height:0;display:grid;grid-template-rows:repeat(5,1fr);grid-auto-flow:column;gap:0 8px;align-items:center}
+#steps li{display:flex;align-items:center;gap:7px;line-height:1.35}
+#steps li:before{content:"";width:14px;height:14px;border-radius:50%;border:1.5px solid #4a5f7e}
+#steps li.cur{color:var(--org);font-weight:700}#steps li.cur:before{background:var(--org);border-color:var(--org)}
+#steps li.done:before{background:var(--go);border-color:var(--go)}
+#outs{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:5px;font-size:14.5px;font-weight:600;flex:1.1;min-height:0}
+#outs span{display:flex;align-items:center;justify-content:center;background:var(--p2);border-radius:7px;padding:2px;text-align:center;color:var(--dim)}
+#outs span.on{background:var(--go);color:#06281d;font-weight:700}
+#msg{margin-top:6px;background:#6a1f2b;border-radius:6px;padding:5px 9px;font-size:13px;display:none}
+/* bottom buttons */
+#btns{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr 1.15fr;gap:8px;height:74px}
+#btns button{border-radius:14px;font-weight:700;font-size:22px;box-shadow:0 5px 0 rgba(0,0,0,.35)}
+#bStart{background:var(--go);color:#06281d}#bStop{background:var(--blue)}
+#bEstop{background:var(--red);border:4px solid var(--yel);border-radius:40px!important}
+#bSet{background:#16253a;font-size:16px!important}#bOff{background:#6b7585;color:#1b2431;font-size:16px!important}
+/* digit pickers */
+.grps{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-bottom:6px}
+.grp{background:#16253a;border-radius:12px;padding:8px 10px;text-align:center}
+.grp .t{font-size:13px;color:var(--dim);margin-bottom:4px;max-width:190px;line-height:1.15;min-height:30px;display:flex;align-items:center;justify-content:center}
+.dg{display:inline-flex;flex-direction:column;align-items:center;margin:0 2px}
+.dg button{width:44px;height:30px;background:#2a4060;border-radius:8px;font-size:16px;padding:0;touch-action:manipulation}
+.dg .d{font-size:38px;font-weight:700;line-height:50px;background:#0b1522;border-radius:8px;width:44px;margin:3px 0;color:var(--tx)}
+/* modal */
+#ov{position:fixed;inset:0;background:rgba(3,8,15,.75);display:none;align-items:center;justify-content:center;z-index:9}
+#modal{background:#1b2b42;border-radius:16px;padding:16px 20px;width:min(440px,90%);max-height:94%;overflow:auto}
+#modal h3{margin:0 0 6px;font-size:20px}#modal p{margin:0 0 10px;font-size:13px;color:var(--dim)}
+.row{display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:14px}
+.row label{flex:1}.row input{width:70px;text-align:center;background:#0b1522;color:var(--tx);border:1px solid var(--ln);border-radius:8px;padding:6px 0;font:700 18px inherit}
+.sq{width:40px;height:34px;border-radius:8px;background:#2a4060;font-size:20px}
+.pre{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px}
+.pre button{background:#2a4060;border-radius:8px;padding:6px 2px;font-size:13px;line-height:1.2}.pre button.sel{background:var(--blue)}
+.acts{display:flex;gap:8px;margin-top:8px}.acts button{flex:1;border-radius:10px;padding:10px;font-weight:700;font-size:16px;background:#8a96a8;color:#101826}
+.acts .pri{background:var(--red);color:#fff}.acts .ok{background:var(--go);color:#06281d}
+</style>
+</head>
+<body>
+<div id="app">
+ <div id="top" class="card">
+  <img id="logo" src="logo.png" alt="" onerror="this.style.display='none'">
+  <div><h1>GEAR ELECTROMECHANICAL ENGINEERING<small>Thermoforming machine control  ·  v4</small></h1></div>
+  <div class="sp"></div>
+  <span class="chip" id="usbChip" style="cursor:pointer"><i id="usbDot"></i><span id="usbTxt">USB</span></span>
+  <span class="chip" id="tempChip"><span id="tempSim">Temp <b id="tempV">25</b> / <b id="tempSp">180</b> °C</span><span id="tempLive" style="display:none">Heater <b id="tempLiveV">-</b></span></span>
+  <span class="chip">Vacuum <b id="vacT">10</b> s · Fan <b id="fanT">30</b> s</span>
+  <button class="chip" id="pcsChip">Pieces/cycle <b id="pcsChipV">6</b></button>
+  <span class="chip">Cycles <b id="cyc">0</b></span>
+  <span class="chip">Total <b id="tot">0</b></span>
+  <div id="state">READY</div>
+ </div>
+
+ <div id="mid">
+  <div class="card" id="mimicWrap">
+   <svg id="mimic" viewBox="0 0 600 290" preserveAspectRatio="xMidYMid meet">
+    <defs>
+     <linearGradient id="gm" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9fb0c8"/><stop offset="1" stop-color="#2a3a52"/></linearGradient>
+     <linearGradient id="gh" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff6a4d" stop-opacity=".6"/><stop offset="1" stop-color="#ff6a4d" stop-opacity="0"/></linearGradient>
+    </defs>
+    <g fill="#ffcf4a"><rect x="248" y="4" width="4" height="15" rx="2"/><rect x="298" y="4" width="4" height="15" rx="2"/><rect x="348" y="4" width="4" height="15" rx="2"/></g>
+    <g id="cycBox" style="cursor:pointer"><text id="cycLbl" x="430" y="20" fill="#8497b0" font-size="12" text-anchor="middle">CYCLE</text><text id="cycBig" x="430" y="52" fill="#38e2a0" font-size="36" font-weight="700" text-anchor="middle">0</text></g>
+    <g id="last" style="display:none"><text id="lastT" x="52" y="30" fill="#aebcd0" font-size="10">LAST PART</text>
+     <path d="M52 40 L136 40 L128 52 L116 62 L106 54 L96 62 L86 54 L76 62 L62 52Z" fill="none" stroke="#5ea8ff" stroke-width="3" stroke-linejoin="round"/></g>
+    <rect x="30" y="58" width="14" height="180" fill="#1b2a42"/><rect x="556" y="58" width="14" height="180" fill="#1b2a42"/>
+    <g id="mold" style="transition:transform 1s;transform:translateY(0)"><path d="M190 300 L190 170 L235 170 L255 192 L275 180 L295 198 L315 180 L335 192 L355 170 L410 170 L410 300Z" fill="url(#gm)"/></g>
+    <rect x="410" y="205" width="62" height="8" fill="#22344f"/><rect id="vbox" x="470" y="178" width="62" height="60" rx="10" fill="#16253a" stroke="#22344f" stroke-width="2"/>
+    <rect x="22" y="235" width="556" height="55" rx="8" fill="#1b2a42"/>
+    <text x="300" y="267" fill="#aebcd0" font-size="13" text-anchor="middle">MOLD</text><text x="500" y="267" fill="#aebcd0" font-size="13" text-anchor="middle">VACUUM</text>
+    <rect id="cb1" x="66" y="79" width="34" height="14" rx="4" fill="#fff"/><rect id="cb2" x="500" y="79" width="34" height="14" rx="4" fill="#fff"/>
+    <path id="sheet" d="M37 95 L563 95" stroke="#5ea8ff" stroke-width="6" fill="none" stroke-linejoin="round" style="transition:d .8s,stroke .8s"/>
+    <circle cx="37" cy="95" r="15" fill="#16253a" stroke="#fff" stroke-width="3"/><text id="c1" x="37" y="102" text-anchor="middle" fill="#fff" font-size="20">⊕</text>
+    <circle cx="563" cy="95" r="15" fill="#16253a" stroke="#fff" stroke-width="3"/><text id="c2" x="563" y="102" text-anchor="middle" fill="#fff" font-size="20">⊕</text>
+    <g id="heater" style="transition:transform 1s;transform:translateX(0)">
+     <rect id="hglow" x="0" y="0" width="0" height="0" fill="url(#gh)"/>
+     <rect id="hbox" x="495" y="58" width="150" height="24" rx="6" fill="#8497b0" style="transition:fill .6s"/>
+     <path d="M507 70 L633 70" stroke="#2b3b55" stroke-width="3" stroke-dasharray="12 7"/>
+     <rect id="hg2" x="495" y="82" width="150" height="40" fill="url(#gh)" style="opacity:0;transition:opacity .6s"/>
+    </g>
+    <g id="fan" style="display:none"><rect x="277" y="26" width="50" height="46" rx="10" fill="#fff"/>
+     <g id="blades" style="transform-origin:302px 49px"><ellipse cx="302" cy="38" rx="5" ry="10" fill="#ffcf4a"/><ellipse cx="302" cy="60" rx="5" ry="10" fill="#ffcf4a"/><ellipse cx="291" cy="49" rx="10" ry="5" fill="#ffcf4a"/><ellipse cx="313" cy="49" rx="10" ry="5" fill="#ffcf4a"/></g>
+     <g fill="#ffcf4a"><rect x="288" y="76" width="3" height="12" rx="1"/><rect x="300" y="76" width="3" height="12" rx="1"/><rect x="312" y="76" width="3" height="12" rx="1"/></g></g>
+   </svg>
+   <div id="tools">
+    <div class="tool" id="t-clamp" style="--c:#5ea8ff">Clamp<b>OPEN</b></div>
+    <div class="tool" id="t-heater" style="--c:#ff7a59">Heater<b>OUT</b></div>
+    <div class="tool" id="t-mold" style="--c:#a77bff">Mold<b>DOWN</b></div>
+    <div class="tool" id="t-vac" style="--c:#2fd6c4">Vacuum<b>OFF</b></div>
+    <div class="tool" id="t-fan" style="--c:#ffcf4a">Fan<b>OFF</b></div>
+    <div class="tool" id="t-motor" style="--c:#38e2a0">Motor<b>OFF</b></div>
+   </div>
+  </div>
+  <div class="card" id="info">
+   <div class="lbl">CURRENT STEP</div>
+   <div id="step">No USB link</div><div id="bar"><i></i></div>
+   <ul id="steps"></ul>
+   <div class="lbl">OUTPUTS</div><div id="outs"></div>
+   <div id="msg"></div>
+  </div>
+ </div>
+
+ <div id="btns">
+  <button id="bStart">START CYCLE</button><button id="bStop">STOP</button>
+  <button id="bEstop">E-STOP</button><button id="bSet">SETTINGS</button><button id="bOff">SHUT DOWN HMI</button>
+ </div>
+ <div id="ov"><div id="modal"></div></div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+/* ---------- saved data ---------- */
+let S={cycles:0,total:0,pcs:6,temp:180,vac:10,fan:30,target:0,runCycles:0};
+try{Object.assign(S,JSON.parse(localStorage.getItem('hmi')||'{}'))}catch(e){}
+function save(){
+ try{localStorage.setItem('hmi',JSON.stringify(S))}catch(e){}
+ $('cyc').textContent=S.cycles;
+ if(window.lastPart)lastPart();
+ $('tot').textContent=S.target?S.total+' / '+S.target:S.total;
+ $('pcsChipV').textContent=S.pcs;
+ $('tempSp').textContent=S.temp;$('vacT').textContent=S.vac;$('fanT').textContent=S.fan}
+
+/* ---------- production counter: call once when a cycle finishes ---------- */
+function onCycleComplete(){S.cycles++;S.total+=S.pcs;save()}
+
+/* ---------- sequence ---------- */
+const OUTS=['CLAMP_SOL','HEATER_MOVE_IN','HEATER_MOVE_OUT','MOLD_DOWN_SOL','MOLD_UP_SOL','VACUUM_PUMP','VACUUM_SOL','FAN_RELAY','RELEASE_SOL','MOTOR_RELAY'];
+const STEPS=[
+ {n:'Clamp sheet',   ms:()=>1200, clamp:1,           o:['CLAMP_SOL']},
+ {n:'Heater in',     ms:()=>1500, clamp:1,heater:1,hot:1,o:['CLAMP_SOL','HEATER_MOVE_IN']},
+ {n:'Heating + soak',ms:()=>4000, clamp:1,heater:1,heat:1,hot:1,sag:1,o:['CLAMP_SOL']},
+ {n:'Heater out',    ms:()=>1500, clamp:1,hot:1,sag:1,o:['CLAMP_SOL','HEATER_MOVE_OUT']},
+ {n:'Mold up',       ms:()=>1200, clamp:1,mold:1,warm:1,o:['CLAMP_SOL','MOLD_UP_SOL']},
+ {n:'Vacuum forming',ms:()=>S.vac*1000,clamp:1,mold:1,vac:1,o:['CLAMP_SOL','VACUUM_PUMP','VACUUM_SOL']},
+ {n:'Cooling fan',   ms:()=>S.fan*1000,clamp:1,mold:1,fan:1,o:['CLAMP_SOL','FAN_RELAY']},
+ {n:'Mold down',     ms:()=>1200, clamp:1,           o:['CLAMP_SOL','MOLD_DOWN_SOL']},
+ {n:'Release part',  ms:()=>1000,                    o:['RELEASE_SOL']},
+ {n:'Pull material', ms:()=>1500, motor:1,           o:['MOTOR_RELAY']}
+];
+$('steps').innerHTML=STEPS.map((s,i)=>`<li id="s${i}">${s.n}</li>`).join('');
+$('outs').innerHTML=OUTS.map(o=>`<span id="o_${o}">${o}</span>`).join('');
+let runDone=0,running=false,fault=false,usb=false,idx=0,timer=null,temp=25,tick=null;
+let live=false,autoRun=false,wantStart=false,doneShown=false,holdUntil=0,lastRx=0,rx='',mach={st:15,out:0,tr:0};
+
+function paint(s){
+ s=s||{};
+ const T={clamp:['CLOSED','OPEN'],heater:['IN','OUT'],mold:['UP','DOWN'],vac:['ON','OFF'],fan:['ON','OFF'],motor:['ON','OFF']};
+ for(const k in T){const on=!!s[k];$('t-'+k).classList.toggle('on',on);$('t-'+k).querySelector('b').textContent=T[k][on?0:1]}
+ $('t-heater').classList.toggle('hot',!!s.hot);
+ $('heater').style.transform=s.heater?'translateX(-275px)':'translateX(0)';
+ $('hbox').setAttribute('fill',s.hot?'#ff6a4d':'#8497b0');$('hg2').style.opacity=s.hot&&s.heater?1:0;
+ $('mold').style.transform=s.mold?'translateY(-62px)':'translateY(0)';
+ $('c1').textContent=$('c2').textContent=s.clamp?'⊗':'⊕';
+ $('cb1').setAttribute('y',s.clamp?83:79);$('cb2').setAttribute('y',s.clamp?83:79);
+ const formed='M37 95 L185 95 L195 108 L235 108 L255 130 L275 118 L295 136 L315 118 L335 130 L355 108 L395 108 L405 95 L563 95';
+ const sag='M37 95 Q300 140 563 95';
+ $('sheet').setAttribute('d',(s.vac||(s.mold&&s.fan))?formed:s.sag?sag:'M37 95 L563 95');
+ $('sheet').setAttribute('stroke',(s.hot||s.warm)?'#ff7a59':'#5ea8ff');
+ $('vbox').setAttribute('fill',s.vac?'#2fd6c4':'#16253a');
+ $('fan').style.display=s.fan?'block':'none';
+ OUTS.forEach(o=>$('o_'+o).classList.toggle('on',(s.o||[]).includes(o)));
+}
+function cycShow(){
+ const N=S.runCycles,n=running?Math.min(runDone+1,N||1e9):runDone;
+ $('cycBig').textContent=N?(n+' / '+N):String(running?runDone+1:runDone);
+ $('cycLbl').textContent=running?'CYCLE RUNNING':(runDone?'CYCLES DONE':'CYCLE');
+ $('cycBig').setAttribute('fill',running?'#ffcf4a':'#38e2a0');
+}
+function lastPart(){const on=S.cycles>0;$('last').style.display=on?'block':'none';$('lastT').textContent='LAST PART #'+S.cycles}
+setInterval(()=>{if($('fan').style.display==='block'){window._r=(window._r||0)+25;$('blades').style.transform='rotate('+window._r+'deg)'}},50);
+function setState(t,c){$('state').textContent=t;$('state').className=c||''}
+function idleText(){$('step').textContent=usb?'Idle':'No USB link';$('step').style.color='var(--blue)'}
+function run(){
+ if(!running)return;
+ if(idx>=STEPS.length){onCycleComplete();runDone++;idx=0;if(S.target&&S.total>=S.target){targetDone();return}if(S.runCycles&&runDone>=S.runCycles){cyclesDone();return}}
+ cycShow();
+ const s=STEPS[idx];
+ $('step').textContent=s.n;$('step').style.color='var(--org)';
+ STEPS.forEach((_,i)=>$('s'+i).className=i<idx?'done':i===idx?'cur':'');
+ paint(s);
+ const d=s.ms(),t0=Date.now();clearInterval(tick);
+ tick=setInterval(()=>{
+  const f=Math.min(1,(Date.now()-t0)/d);$('bar').firstChild.style.width=f*100+'%';
+  if(s.heat)temp=Math.round(25+(S.temp-25)*f);else if(s.n==='Cooling fan')temp=Math.round(S.temp-(S.temp-60)*f);
+  $('tempV').textContent=temp;$('tempV').style.color=temp>120?'#ff7a59':''},100);
+ idx++;timer=setTimeout(run,d);
+}
+function targetDone(){stop();$('step').textContent='Target reached';$('step').style.color='var(--go)';$('msg').style.display='block';$('msg').style.background='#12604a';$('msg').textContent='Target of '+S.target+' pieces reached. Reset the count or raise the target.';doneShown=true}
+function cyclesDone(){stop();$('step').textContent='Done';$('step').style.color='var(--go)';$('msg').style.display='block';$('msg').style.background='#12604a';$('msg').textContent=runDone+' cycle(s) finished.';doneShown=true}
+function start(){
+ if(fault||running)return;
+ if(S.target&&S.total>=S.target){targetDone();return}
+ runDone=0;doneShown=false;$('msg').style.display='none';
+ if(live){running=true;autoRun=true;wantStart=true;sendCfg();setState('RUNNING','run');cycShow();$('bStart').disabled=true;$('bSet').disabled=true;return}
+ running=true;idx=0;setState('RUNNING','run');cycShow();$('bStart').disabled=true;$('bSet').disabled=true;run()}
+function stop(){autoRun=false;wantStart=false;doneShown=false;running=false;clearTimeout(timer);clearInterval(tick);paint({});STEPS.forEach((_,i)=>$('s'+i).className='');
+ $('bar').firstChild.style.width='0';$('bStart').disabled=false;$('bSet').disabled=false;
+ fault=false;$('msg').style.display='none';
+ setState('READY');idleText();cycShow()}
+function estop(){autoRun=false;wantStart=false;running=false;clearTimeout(timer);clearInterval(tick);paint({});fault=true;send('ESTOP');
+ $('step').textContent='Fault';$('step').style.color='var(--red)';setState('FAULT','fault');
+ $('msg').style.display='block';$('msg').style.background='#6a1f2b';$('msg').textContent='FAULT: emergency stop. Press STOP to reset.';
+ $('bStart').disabled=true;$('bSet').disabled=true}
+$('bStart').onclick=start;$('bStop').onclick=()=>{send('STOP');holdUntil=Date.now()+600;stop();$('bStart').disabled=false};$('bEstop').onclick=estop;
+
+/* ---------- modals ---------- */
+function open(html,w){$('modal').style.width='min('+(w||440)+'px,94%)';$('modal').innerHTML=html;$('ov').style.display='flex'}
+function close(){$('ov').style.display='none'}
+function dpHTML(id,label,val,n,max,min){return `<div class="grp"><div class="t">${label}</div><div class="dp" data-id="${id}" data-n="${n}" data-max="${max}" data-min="${min||0}" data-v="${val}"></div></div>`}
+function dpInit(onChange){
+ document.querySelectorAll('.dp').forEach(el=>{
+  const n=+el.dataset.n,max=+el.dataset.max,min=+el.dataset.min;
+  const draw=()=>{el.innerHTML=[...String(el.dataset.v).padStart(n,'0')].map((c,i)=>`<div class="dg"><button data-i="${i}" data-d="1">▲</button><div class="d" data-i="${i}">${c}</div><button data-i="${i}" data-d="-1">▼</button></div>`).join('')};
+  el.onclick=e=>{const t=e.target.closest('button[data-d]');if(!t)return;
+   const g=String(el.dataset.v).padStart(n,'0').split('').map(Number);g[+t.dataset.i]=(g[+t.dataset.i]+(+t.dataset.d)+10)%10;
+   let v=parseInt(g.join(''),10);v=Math.min(max,Math.max(min,v));el.dataset.v=v;draw();if(onChange)onChange(el.dataset.id,v)};
+  draw()})}
+function dpVal(id){return +document.querySelector('.dp[data-id="'+id+'"]').dataset.v}
+function pcsDialog(){
+ open(`<h3>Production</h3>
+ <div class="grps">${dpHTML('pcs','Pieces per cycle',S.pcs,3,999,1)}${dpHTML('rc','Cycles to run (0 = no limit)',S.runCycles,4,9999)}${dpHTML('tg','Target pieces (0 = no limit, max 5000)',S.target,4,5000)}</div>
+ <div class="row"><label>Cycles <b>${S.cycles}</b> · Total <b>${S.total}</b></label></div>
+ <div class="acts"><button class="pri" id="rs">Reset count</button><button class="ok" id="ok">Done</button></div>`,860);
+ dpInit((id,v)=>{if(id==='pcs')S.pcs=v;if(id==='rc')S.runCycles=v;if(id==='tg')S.target=v;save();cycShow()});
+ $('rs').onclick=()=>{if(confirm('Reset production count?')){S.cycles=0;S.total=0;save();$('msg').style.display='none';idleText();close()}};
+ $('ok').onclick=close;
+}
+$('pcsChip').onclick=pcsDialog;$('cycBox').onclick=()=>{if(!running)pcsDialog()};
+$('bSet').onclick=()=>{open(`<h3>Settings</h3>
+ <div class="grps">${dpHTML('temp','Heater temperature (°C)',S.temp,3,300,50)}${dpHTML('vac','Vacuum time (s)',S.vac,3,999,1)}${dpHTML('fan','Fan time (s)',S.fan,3,999,1)}${dpHTML('rc','Cycles to run (0 = no limit)',S.runCycles,4,9999)}${dpHTML('tg','Target pieces (0 = no limit, max 5000)',S.target,4,5000)}</div>
+ <div class="acts"><button id="c">Cancel</button><button class="ok" id="s">Save</button></div>`,1040);
+ dpInit();$('c').onclick=close;
+ $('s').onclick=()=>{S.temp=dpVal('temp');S.vac=dpVal('vac');S.fan=dpVal('fan');S.runCycles=dpVal('rc');S.target=dpVal('tg');save();cycShow();if(live)sendCfg();close()}};
+$('bOff').onclick=()=>{open(`<h3>Shut down the HMI?</h3><p>The HMI closes and the machine is stopped.</p>
+ <div class="acts"><button id="c">Cancel</button><button class="pri" id="y">Shut down</button></div>`);
+ $('c').onclick=close;$('y').onclick=()=>{send('SHUTDOWN_CONFIRM');if(navigator.app&&navigator.app.exitApp)navigator.app.exitApp();close()}};
+
+/* ---------- USB (cordovarduino) <-> Arduino Mega ----------
+   HMI -> Mega : START | STOP | ESTOP | CFG,<vacuum s>,<fan s>
+   Mega -> HMI : S,<state>,<outputMask>,<heaterReady>   (every 200 ms)
+                 E,CYCLE                                (one cycle finished)  */
+const ST2STEP={1:0,2:1,3:2,4:3,5:4,6:4,7:5,8:5,9:5,10:6,11:7,12:8,13:9,14:9};
+const BITS=['CLAMP_SOL','HEATER_MOVE_IN','HEATER_MOVE_OUT','MOLD_DOWN_SOL','MOLD_UP_SOL','VACUUM_PUMP','VACUUM_SOL','RELEASE_SOL',null,'FAN_RELAY','MOTOR_RELAY'];
+function send(cmd){try{if(usb&&window.serial)serial.write(cmd+'\n')}catch(e){}}
+function sendCfg(){send('CFG,'+S.vac+','+S.fan)}
+function onData(buf){
+ let t='';try{t=new TextDecoder().decode(new Uint8Array(buf))}catch(e){t=String.fromCharCode.apply(null,new Uint8Array(buf))}
+ rx+=t;let i;
+ while((i=rx.indexOf('\n'))>=0){const l=rx.slice(0,i).trim();rx=rx.slice(i+1);if(l)gotLine(l)}
+ if(rx.length>200)rx='';
+}
+function gotLine(l){
+ const p=l.split(',');
+ if(p[0]==='S'&&p.length>=4){lastRx=Date.now();mach={st:+p[1],out:+p[2],tr:+p[3]};applyLive()}
+ else if(l==='E,CYCLE'){
+  onCycleComplete();runDone++;
+  if(S.target&&S.total>=S.target){targetDone();return}
+  if(S.runCycles&&runDone>=S.runCycles){cyclesDone();return}
+  if(autoRun)wantStart=true;
+  cycShow();
+ }
+}
+function applyLive(){
+ if(Date.now()<holdUntil)return;
+ live=true;
+ $('tempSim').style.display='none';$('tempLive').style.display='';
+ $('tempLiveV').textContent=mach.tr?'READY':'WARMING';$('tempLiveV').style.color=mach.tr?'var(--go)':'#ff7a59';
+ $('usbDot').style.background='var(--go)';
+ const st=mach.st,o=[];BITS.forEach((n,i)=>{if(n&&((mach.out>>i)&1))o.push(n)});
+ const idle=(st===0||st===15),flt=(st===16||st===17);
+ const clearSteps=()=>{STEPS.forEach((_,i)=>$('s'+i).className='');$('bar').firstChild.style.width='0'};
+ if(flt){
+  running=false;autoRun=false;wantStart=false;fault=true;doneShown=false;
+  paint({o});clearSteps();
+  $('step').textContent=st===17?'Power recovery':'Fault';$('step').style.color='var(--red)';setState('FAULT','fault');
+  $('msg').style.display='block';$('msg').style.background='#6a1f2b';
+  $('msg').textContent=st===17?'POWER RECOVERY: machine was stopped mid-cycle. Press STOP to reset.':'FAULT: stopped by the controller. Press STOP to reset.';
+  $('bStart').disabled=true;$('bSet').disabled=true;return}
+ if(fault){fault=false;if(!doneShown)$('msg').style.display='none'}
+ if(idle){
+  if(wantStart&&st===15){wantStart=false;send('START')}
+  if(!autoRun){
+   running=false;paint({o});clearSteps();
+   if(!doneShown){$('step').textContent=st===0?'Waiting for home':'Idle';$('step').style.color='var(--blue)'}
+   setState('READY');$('bStart').disabled=false;$('bSet').disabled=false;
+  }else{$('step').textContent=st===0?'Waiting for home':'Next cycle';$('step').style.color='var(--blue)'}
+  cycShow();return}
+ const k=ST2STEP[st],s=STEPS[k];
+ if(!s)return;   /* unknown state number: ignore */
+ running=true;
+ $('step').textContent=s.n;$('step').style.color='var(--org)';
+ STEPS.forEach((_,i)=>$('s'+i).className=i<k?'done':i===k?'cur':'');
+ $('bar').firstChild.style.width=((k+1)/STEPS.length*100)+'%';
+ paint(Object.assign({},s,{o}));setState('RUNNING','run');
+ $('bStart').disabled=true;$('bSet').disabled=true;cycShow();
+}
+setInterval(()=>{
+ if(live&&Date.now()-lastRx>2500){
+  live=false;autoRun=false;wantStart=false;running=false;fault=false;
+  $('tempSim').style.display='';$('tempLive').style.display='none';$('usbDot').style.background='var(--red)';
+  paint({});STEPS.forEach((_,i)=>$('s'+i).className='');$('bar').firstChild.style.width='0';
+  setState('READY');idleText();$('bStart').disabled=false;$('bSet').disabled=false;
+  $('msg').style.display='block';$('msg').style.background='#6a1f2b';$('msg').textContent='USB link lost. The controller keeps running its own sequence.';cycShow();
+ }},500);
+/* ---- USB connection: tries several drivers, shows the real error, retries by itself ---- */
+const DRIVERS=[{},{driver:'Ch34xSerialDriver'},{driver:'CdcAcmSerialDriver'},{driver:'FtdiSerialDriver'},{driver:'Cp21xxSerialDriver'},{driver:'ProlificSerialDriver'}];
+let connecting=false,lastErr='',usbSince=0,connTimer=null,dl=[];const T0=Date.now();
+function dlog(t){dl.push(new Date().toLocaleTimeString()+'  '+t);if(dl.length>10)dl.shift()}
+function usbFail(t){
+ connecting=false;clearTimeout(connTimer);$('usbTxt').textContent='USB retry';dlog('FAIL: '+t);
+ if(!running){$('msg').style.display='block';$('msg').style.background='#6a1f2b';
+  $('msg').textContent='USB not connected: '+t+'. Plug the Mega in with an OTG cable, then tap the USB button.'}
+}
+function usbConnect(){
+ if(usb||connecting)return;
+ if(!window.serial){dlog('USB plugin not loaded yet');if(Date.now()-T0>15000)usbFail('USB plugin not loaded');return}
+ connecting=true;lastErr='';$('usbTxt').textContent='USB connecting';dlog('connecting...');
+ clearTimeout(connTimer);connTimer=setTimeout(()=>{if(connecting)usbFail(String(lastErr||'no answer from the USB plugin (permission window not answered?)'))},12000);
+ tryDriver(0);
+}
+function tryDriver(i){
+ if(i>=DRIVERS.length){usbFail(String(lastErr||'no USB device found'));return}
+ dlog('try '+(DRIVERS[i].driver||'default driver'));
+ try{
+  serial.requestPermission(DRIVERS[i],()=>{
+   dlog('permission ok');
+   serial.open({baudRate:9600},()=>{
+    connecting=false;clearTimeout(connTimer);usb=true;usbSince=Date.now();dlog('port open');
+    $('usbTxt').textContent='USB';$('usbDot').style.background='var(--go)';
+    if(!doneShown&&!fault&&!running)$('msg').style.display='none';
+    try{serial.registerReadCallback(onData,e=>dlog('read cb error '+e))}catch(e){dlog('registerReadCallback: '+e)}
+    if(!running&&!fault)idleText();
+   },e=>{lastErr=e;dlog('open error: '+e);tryDriver(i+1)});
+  },e=>{lastErr=e;dlog('permission error: '+e);tryDriver(i+1)});
+ }catch(e){lastErr=e;dlog('exception: '+e);tryDriver(i+1)}
+}
+function usbDiag(){
+ const age=lastRx?Math.round((Date.now()-lastRx)/1000)+' s ago':'never';
+ const esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+ open(`<h3>USB status</h3>
+ <div style="font-size:15px;line-height:1.6">App version: <b>v4</b><br>USB plugin loaded: <b>${window.serial?'yes':'NO'}</b><br>Port open: <b>${usb?'yes':'no'}</b><br>Data from the Mega: <b>${live?'yes':'no'}</b> (last: ${age})<br>Last error: <b>${esc(lastErr||'-')}</b></div>
+ <div style="font:12px monospace;background:#0b1522;border-radius:8px;padding:8px;margin-top:8px;white-space:pre-wrap;max-height:130px;overflow:auto">${esc(dl.join('\n')||'-')}</div>
+ <div class="acts"><button id="c">Close</button><button class="ok" id="rc2">Reconnect</button></div>`,720);
+ $('c').onclick=close;$('rc2').onclick=()=>{usb=false;connecting=false;clearTimeout(connTimer);close();usbConnect()};
+}
+$('usbChip').onclick=usbDiag;
+document.addEventListener('deviceready',()=>{dlog('deviceready');usbConnect()},false);
+setInterval(()=>{
+ if(usb&&!live&&Date.now()-usbSince>8000){usb=false;dlog('no data from the Mega, reconnecting');try{serial.close(()=>{},()=>{})}catch(e){}}
+ if(!usb&&!connecting&&window.serial)usbConnect();
+ else if(!window.serial&&Date.now()-T0>15000&&!connecting)usbConnect();
+},3000);
+
+/* fit the whole screen: fixed 1160px design width, scaled to the window, rotated if upright */
+function fit(){
+ const W=innerWidth,H=innerHeight,port=H>W,vw=port?H:W,vh=port?W:H,k=vw/1160,a=$('app');
+ a.style.width='1160px';a.style.height=(vh/k)+'px';
+ a.style.transform=port?'translateX('+W+'px) rotate(90deg) scale('+k+')':'scale('+k+')';
+}
+addEventListener('resize',fit);addEventListener('orientationchange',()=>setTimeout(fit,200));
+fit();setTimeout(fit,300);
+save();idleText();cycShow();
+</script>
+</body>
+</html>

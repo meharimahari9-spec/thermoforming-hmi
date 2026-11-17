@@ -45,8 +45,37 @@ jobs:
               '    <preference name="android-minSdkVersion" value="24" />\n'
               '    <preference name="android-targetSdkVersion" value="30" />\n'
           )
+
           if os.path.exists('icon.png'):
-              prefs += '    <icon src="icon.png" />\n'
+              try:
+                  from PIL import Image
+                  img = Image.open('icon.png').convert('RGBA')
+                  w, h = img.size
+                  # አይከኑ ሙሉ በሙሉ እንዲሞላ ጠርዙን በመቁረጥ (Center Crop) ማስተካከል
+                  m = min(w, h)
+                  crop_m = int(m * 0.72)
+                  left = (w - crop_m) // 2
+                  top = (h - crop_m) // 2
+                  full_icon = img.crop((left, top, left + crop_m, top + crop_m)).resize((512, 512), Image.LANCZOS)
+                  full_icon.save('icon_full.png')
+
+                  # መክፈቻ ስክሪን (Splash Screen) ላይ ሎጎው በጥቁር ዳራ እንዲታይ ማዘጋጀት
+                  splash = Image.new('RGBA', (512, 512), (18, 25, 38, 255))
+                  logo_s = img.resize((360, 360), Image.LANCZOS)
+                  splash.paste(logo_s, (76, 76), logo_s)
+                  splash.save('splash.png')
+
+                  prefs += (
+                      '    <icon src="icon_full.png" />\n'
+                      '    <preference name="AndroidWindowSplashScreenAnimatedIcon" value="splash.png" />\n'
+                      '    <preference name="AndroidWindowSplashScreenBackground" value="#121926" />\n'
+                  )
+              except Exception as e:
+                  prefs += (
+                      '    <icon src="icon.png" />\n'
+                      '    <preference name="AndroidWindowSplashScreenAnimatedIcon" value="icon.png" />\n'
+                      '    <preference name="AndroidWindowSplashScreenBackground" value="#121926" />\n'
+                  )
 
           xml = xml.replace('</widget>', prefs + '</widget>')
           with open('config.xml', 'w', encoding='utf-8') as f:

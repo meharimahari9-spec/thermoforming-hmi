@@ -75,7 +75,7 @@ button.chip{color:var(--tx)} button.chip b{color:var(--yel)}
 <div id="app">
  <div id="top" class="card">
   <img id="logo" src="logo.png" alt="" onerror="this.style.display='none'">
-  <div><h1>GEAR ELECTROMECHANICAL ENGINEERING<small>Thermoforming machine control  ·  v7.1</small></h1></div>
+  <div><h1>GEAR ELECTROMECHANICAL ENGINEERING<small>Thermoforming machine control  ·  v7.2</small></h1></div>
   <div class="sp"></div>
   <span class="chip" id="usbChip" style="cursor:pointer"><i id="usbDot"></i><span id="usbTxt">USB</span></span>
   <button class="chip" id="inChip">Inputs</button>
@@ -282,7 +282,7 @@ $('bOff').onclick=()=>{open(`<h3>Shut down the HMI?</h3><p>The HMI closes. A run
  $('c').onclick=close;$('y').onclick=()=>{if(navigator.app&&navigator.app.exitApp)navigator.app.exitApp();close()}};
 
 /* ---------- USB (cordovarduino) <-> Arduino Mega ----------
-   HMI -> Mega : START | STOP | ESTOP | RESET | CFG,<vac s>,<fan s>,<target pcs>,<pcs per cycle> | M,<cmd>
+   HMI -> Mega : START | STOP | ESTOP | RESET | STATUS | CFG,<vac s>,<fan s>,<target pcs>,<pcs per cycle> | M,<cmd>
    Mega -> HMI : S,<state>,<outMask>,<heaterReady>,<fault>,<inMask>,<total>,<target>,<pcs/cycle>  (every 200 ms)
                  E,CYCLE | E,DENY,<reason> | E,FAULT,<code>                                      */
 const ST2STEP={1:0,2:0,3:0,4:1,5:2,6:3,7:4,8:5,9:6,10:6,11:7,12:7,13:7,14:8,18:9};
@@ -386,12 +386,13 @@ function tryDriver(i){
  try{
   serial.requestPermission(DRIVERS[i],()=>{
    dlog('permission ok');
-   serial.open({baudRate:9600},()=>{
-    connecting=false;clearTimeout(connTimer);usb=true;usbSince=Date.now();dlog('port open');
+   serial.open({baudRate:9600,dtr:true,rts:true,sleepOnPause:false},()=>{
+    connecting=false;clearTimeout(connTimer);usb=true;usbSince=Date.now();dlog('port open (dtr on)');
     $('usbTxt').textContent='USB';$('usbDot').style.background='var(--go)';
     if(!doneShown&&!fault&&!running)$('msg').style.display='none';
     try{serial.registerReadCallback(onData,e=>dlog('read cb error '+e))}catch(e){dlog('registerReadCallback: '+e)}
     if(!running&&!fault)idleText();
+    setTimeout(()=>send('STATUS'),1500);setTimeout(()=>send('STATUS'),3500);
    },e=>{lastErr=e;dlog('open error: '+e);tryDriver(i+1)});
   },e=>{lastErr=e;dlog('permission error: '+e);tryDriver(i+1)});
  }catch(e){lastErr=e;dlog('exception: '+e);tryDriver(i+1)}
@@ -400,7 +401,7 @@ function usbDiag(){
  const age=lastRx?Math.round((Date.now()-lastRx)/1000)+' s ago':'never';
  const esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
  open(`<h3>USB status</h3>
- <div style="font-size:15px;line-height:1.6">App version: <b>v7.1</b><br>USB plugin loaded: <b>${window.serial?'yes':'NO'}</b><br>Port open: <b>${usb?'yes':'no'}</b><br>Data from the Mega: <b>${live?'yes':'no'}</b> (last: ${age})<br>Last error: <b>${esc(lastErr||'-')}</b><br>Bytes received: <b>${rxBytes}</b><br>Last line: <b>${esc(lastLine||'-')}</b></div>
+ <div style="font-size:15px;line-height:1.6">App version: <b>v7.2</b><br>USB plugin loaded: <b>${window.serial?'yes':'NO'}</b><br>Port open: <b>${usb?'yes':'no'}</b><br>Data from the Mega: <b>${live?'yes':'no'}</b> (last: ${age})<br>Last error: <b>${esc(lastErr||'-')}</b><br>Bytes received: <b>${rxBytes}</b><br>Last line: <b>${esc(lastLine||'-')}</b></div>
  <div style="font:12px monospace;background:#0b1522;border-radius:8px;padding:8px;margin-top:8px;white-space:pre-wrap;max-height:130px;overflow:auto">${esc(dl.join('\n')||'-')}</div>
  <div class="acts"><button id="c">Close</button><button class="ok" id="rc2">Reconnect</button></div>`,720);
  $('c').onclick=close;$('rc2').onclick=()=>{usb=false;connecting=false;clearTimeout(connTimer);close();usbConnect()};

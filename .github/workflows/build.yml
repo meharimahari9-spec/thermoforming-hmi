@@ -1,7 +1,7 @@
 name: Build Thermoforming HMI APK
 
 on:
-  workflow_dispatch: # ከ GitHub UI በእጅ ለማስኬድ ያስችላል
+  workflow_dispatch: # Allows manual trigger from GitHub UI
   push:
     branches: [ main ]
 
@@ -29,35 +29,26 @@ jobs:
 
       - name: Create Cordova Project Structure
         run: |
-          # 1. የ directory መዋቅር መፍጠር
+          # 1. Create directory structure
           mkdir -p temp_app
           cd temp_app
           
-          # 2. Cordova Appን በ STRICTLY VALID Package Name መጀመር
-          # ሁሉንም የተከለከሉ ቃላት ለማስወገድ ወደ com.gear.megacontrol ተቀይሯል።
+          # 2. Initialize Cordova App with a VALID Package Name
+          # FIXED: Changed to com.gear.megacontrol to avoid reserved words like 'thermo' or 'hmi'
           cordova create com.gear.megacontrol "Thermoforming HMI"
           
-          # 3. ወደ project folder መግባት (ከላይ ካለው ID ጋር መመሳሰል አለበት)
+          # 3. Enter the project folder
           cd com.gear.megacontrol
           
-          # 4. custom index.html-ዎን ወደ www folder መቅዳት
+          # 4. Copy your custom index.html into the www folder
           cp ../../index.html ./www/index.html
           
-          # 5. Android Platform መጨመር
+          # 5. Add Android Platform
           cordova platform add android@13
           
-          # 6. Serial Plugin መጨመር (ለ USB ግንኙነት)
+          # 6. Add Serial Plugin (for USB communication)
           cordova plugin add cordovarduino
           
-          # 7. Preferences በ config.xml ውስጥ ማስተካከል
-          sed -i 's#</widget>#<preference name="Orientation" value="landscape" />\n<preference name="Fullscreen" value="true" />\n<preference name="android-minSdkVersion" value="24" />\n<preference name="android-targetSdkVersion" value="30" />\n</widget>#' config.xml
-
-      - name: Build Debug APK
-        working-directory: temp_app/com.gear.megacontrol
-        run: cordova build android --debug
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: thermoforming-hmi-debug.apk
-          path: temp_app/com.gear.megacontrol/platforms/android/app/build/outputs/apk/debug/app-debug.apk
+          # --- RESTORED ICON LOGIC STARTS HERE ---
+          # Decode the Base64 string into an actual PNG file
+          echo "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

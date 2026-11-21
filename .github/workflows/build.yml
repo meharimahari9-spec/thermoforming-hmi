@@ -1,182 +1,64 @@
-name: Build APK
+name: Build Thermoforming HMI APK
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual trigger
   push:
-    branches: [main]
+    branches: [ main ]
 
 jobs:
-  build:
+  build-android:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Setup JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '20'
 
-      - name: Install Cordova
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Cordova CLI
+        run: npm install -g cordova
+
+      - name: Create Cordova Project Structure
         run: |
-          npm install -g cordova
-          node -v
-          cordova --version
-
-      - name: Prepare the Cordova project (no template download)
-        run: |
-          rm -rf app
-          mkdir -p app/www app/res
-          cp index.html app/www/index.html
-          if [ -f logo.png ]; then cp logo.png app/www/logo.png; fi
-
-          SRC=""
-          if [ -f icon.png ]; then SRC=icon.png; elif [ -f logo.png ]; then SRC=logo.png; fi
-
-          ICONS=""
-          SPLASH=""
-          if [ -n "$SRC" ]; then
-            if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
-              sudo apt-get update && sudo apt-get install -y imagemagick
-            fi
-            IM=$(command -v magick || command -v convert)
-            $IM "$SRC" -resize 280x280 -background none -gravity center -extent 432x432 app/res/icon-fg.png
-            $IM -size 432x432 xc:black app/res/icon-bg.png
-            cp "$SRC" app/res/icon-legacy.png
-            ICONS='<icon src="res/icon-legacy.png" density="xxxhdpi" /><icon background="res/icon-bg.png" foreground="res/icon-fg.png" density="xxxhdpi" />'
-            SPLASH='<preference name="AndroidWindowSplashScreenAnimatedIcon" value="res/icon-fg.png" />'
-          fi
-
-          cat > app/config.xml <<EOF
-          <?xml version='1.0' encoding='utf-8'?>
-          <widget id="com.thermo.hmi" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
-            <name>Thermoforming HMI</name>
-            <description>Thermoforming machine HMI</description>
-            <author email="info@example.com" href="https://example.com">Gear EM Engineering</author>
-            <content src="index.html" />
-            <preference name="Orientation" value="sensorLandscape" />
-            <preference name="Fullscreen" value="true" />
-            <preference name="AndroidWindowSplashScreenBackground" value="#0b1522" />
-            <preference name="android-minSdkVersion" value="24" />
-            <preference name="android-targetSdkVersion" value="30" />
-            $SPLASH
-            <platform name="android">
-              $ICONS
-            </platform>
-          </widget>
-          EOF
-
-          cat > app/package.json <<EOF
-          {
-            "name": "com.thermo.hmi",
-            "displayName": "Thermoforming HMI",
-            "version": "1.0.0"
-          }
-          EOF
-
-          echo "---- config.xml ----"
-          cat app/config.xml
-
-      - name: Add Android platform and plugins
-        working-directory: app
-        run: |
+          # Create a temporary directory for the app
+          mkdir -p temp_app
+          cd temp_app
+          
+          # Initialize Cordova App
+          cordova create com.thermo.hmi "Thermoforming HMI"
+          cd com.thermo.hmi
+          
+          # Copy your custom index.html into the www folder
+          # Assumes index.html is in the root of your repo
+          cp ../../index.html ./www/index.html
+          
+          # Add Android Platform
           cordova platform add android@13
+          
+          # Add Serial Plugin (for USB communication)
           cordova plugin add cordovarduino
-          cordova plugin add cordova-plugin-insomnia
+          
+          # Configure Preferences in config.xml
+          # Orientation: Landscape, Fullscreen: True, Min SDK: 24
+          sed -i 's#</widget>#<preference name="Orientation" value="landscape" />\n<preference name="Fullscreen" value="true" />\n<preference name="android-minSdkVersion" value="24" />\n<preference name="android-targetSdkVersion" value="30" />\n</widget>#' config.xml
+          
+          # Optional: Add Icon if you have one (skipped for simplicity here)
 
-      - name: Patch the USB plugin for new Android versions
-        working-directory: app
-        run: |
-          python3 - <<'PY'
-          import glob
+      - name: Build Debug APK
+        working-directory: temp_app/com.thermo.hmi
+        run: cordova build android --debug
 
-          def rewrite(src, token, fn):
-              out, i = '', 0
-              while True:
-                  j = src.find(token, i)
-                  if j < 0:
-                      return out + src[i:]
-                  k = j + len(token)
-                  depth, p = 1, k
-                  while p < len(src) and depth:
-                      if src[p] == '(':
-                          depth += 1
-                      elif src[p] == ')':
-                          depth -= 1
-                      p += 1
-                  out += src[i:j] + fn(src[k:p-1])
-                  i = p
-
-          def split_args(s):
-              args, depth, cur = [], 0, ''
-              for ch in s:
-                  if ch == ',' and depth == 0:
-                      args.append(cur)
-                      cur = ''
-                      continue
-                  if ch in '([{':
-                      depth += 1
-                  if ch in ')]}':
-                      depth -= 1
-                  cur += ch
-              args.append(cur)
-              return [a.strip() for a in args]
-
-          def fix_pending(inner):
-              a = split_args(inner)
-              if len(a) != 4:
-                  return 'PendingIntent.getBroadcast(' + inner + ')'
-              ctx, req, intent, flags = a
-              if 'setPackage' not in intent:
-                  intent += '.setPackage(' + ctx + '.getPackageName())'
-              if '0x02000000' not in flags and 'FLAG_MUTABLE' not in flags and 'FLAG_IMMUTABLE' not in flags:
-                  flags = '0x02000000' if flags in ('0', '') else '0x02000000 | ' + flags
-              return 'PendingIntent.getBroadcast(' + ', '.join([ctx, req, intent, flags]) + ')'
-
-          def fix_receiver(inner):
-              a = split_args(inner)
-              if len(a) == 2:
-                  return '.registerReceiver(' + inner + ', 4)'
-              return '.registerReceiver(' + inner + ')'
-
-          files = [f for f in glob.glob('plugins/**/*.java', recursive=True) + glob.glob('platforms/**/*.java', recursive=True)
-                   if 'serial' in f.lower() or 'drangies' in f.lower()]
-          done = 0
-          for f in files:
-              s = open(f, encoding='utf-8', errors='ignore').read()
-              if 'PendingIntent' not in s and 'registerReceiver' not in s:
-                  continue
-              t = rewrite(s, 'PendingIntent.getBroadcast(', fix_pending)
-              t = rewrite(t, '.registerReceiver(', fix_receiver)
-              if t != s:
-                  open(f, 'w', encoding='utf-8').write(t)
-                  print('USB PATCH APPLIED:', f)
-                  done += 1
-              else:
-                  print('USB patch: nothing to change in', f)
-          if not done:
-              print('WARNING: USB patch changed nothing (source differs from what was expected)')
-          PY
-
-      - name: Build debug APK
-        working-directory: app
-        run: |
-          cordova build android --debug || {
-            echo "Build with targetSdk 30 failed - retrying with the default target SDK"
-            sed -i '/android-targetSdkVersion/d' config.xml
-            cordova build android --debug
-          }
-
-      - name: Upload APK
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: thermoforming-hmi-apk
-          path: app/platforms/android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          name: thermoforming-hmi-debug.apk
+          path: temp_app/com.thermo.hmi/platforms/android/app/build/outputs/apk/debug/app-debug.apk

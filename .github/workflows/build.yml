@@ -1,7 +1,7 @@
 name: Build Thermoforming HMI APK
 
 on:
-  workflow_dispatch: # Allows manual trigger from GitHub UI
+  workflow_dispatch: # ከ GitHub UI በእጅ ለማስኬድ ያስችላል
   push:
     branches: [ main ]
 
@@ -29,38 +29,35 @@ jobs:
 
       - name: Create Cordova Project Structure
         run: |
-          # 1. Create directory structure
+          # 1. የ directory መዋቅር መፍጠር
           mkdir -p temp_app
           cd temp_app
           
-          # 2. Initialize Cordova App with a VALID Package Name
-          # Changed from com.thermo.hmi to com.gearengineering.thermoform
-          # This avoids the "reserved word" error.
-          cordova create com.gearengineering.thermoform "Thermoforming HMI"
+          # 2. Cordova Appን በ STRICTLY VALID Package Name መጀመር
+          # ሁሉንም የተከለከሉ ቃላት ለማስወገድ ወደ com.gear.megacontrol ተቀይሯል።
+          cordova create com.gear.megacontrol "Thermoforming HMI"
           
-          # 3. Enter the project folder
-          cd com.gearengineering.thermoform
+          # 3. ወደ project folder መግባት (ከላይ ካለው ID ጋር መመሳሰል አለበት)
+          cd com.gear.megacontrol
           
-          # 4. Copy your custom index.html into the www folder
-          # Assumes index.html is in the root of your repo
+          # 4. custom index.html-ዎን ወደ www folder መቅዳት
           cp ../../index.html ./www/index.html
           
-          # 5. Add Android Platform
+          # 5. Android Platform መጨመር
           cordova platform add android@13
           
-          # 6. Add Serial Plugin (for USB communication)
+          # 6. Serial Plugin መጨመር (ለ USB ግንኙነት)
           cordova plugin add cordovarduino
           
-          # 7. Configure Preferences in config.xml
-          # Orientation: Landscape, Fullscreen: True, Min SDK: 24
+          # 7. Preferences በ config.xml ውስጥ ማስተካከል
           sed -i 's#</widget>#<preference name="Orientation" value="landscape" />\n<preference name="Fullscreen" value="true" />\n<preference name="android-minSdkVersion" value="24" />\n<preference name="android-targetSdkVersion" value="30" />\n</widget>#' config.xml
 
       - name: Build Debug APK
-        working-directory: temp_app/com.gearengineering.thermoform
+        working-directory: temp_app/com.gear.megacontrol
         run: cordova build android --debug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: thermoforming-hmi-debug.apk
-          path: temp_app/com.gearengineering.thermoform/platforms/android/app/build/outputs/apk/debug/app-debug.apk
+          path: temp_app/com.gear.megacontrol/platforms/android/app/build/outputs/apk/debug/app-debug.apk

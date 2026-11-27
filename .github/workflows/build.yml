@@ -1,118 +1,287 @@
-# Thermoforming Machine HMI serial protocol
-# Arduino Mega 2560 / USB serial
-# Encoding: ASCII, newline terminated (\n or \r\n)
-# Baud: 9600, 8 data bits, no parity, 1 stop bit
 
-serial:
-  baud_rate: 9600
-  data_bits: 8
-  parity: none
-  stop_bits: 1
-  line_ending: LF
-  max_command_line_bytes: 23
+name: Build APK
 
-phone_to_arduino:
-  commands:
-    MODE:
-      formats:
-        - "MODE,TEST"
-        - "MODE,PRODUCTION"
-      description: Select mode only in HOME/READY with all outputs off. TEST energizes real outputs and uses timer-based virtual limit responses; PRODUCTION uses physical limit switches.
-      acknowledgement: "E,MODE,TEST or E,MODE,PRODUCTION"
-    START:
-      description: Request one cycle. Accepted only in READY; plug must be UP.
-      response: Status line; start may be ignored if not READY.
-    STOP:
-      description: Stop outputs, clear software fault, return to HOME.
-      response: Status line
-    ESTOP:
-      description: Software emergency-stop request; not safety-rated.
-      response: E,FAULT,11 when accepted
-    STATUS:
-      description: Request immediate status report.
-      response: S,state,output_mask,temp_ready,fault_code
-    CFG:
-      format: "CFG,<forming_seconds>,<cooling_seconds>"
-      constraints:
-        forming_seconds: 1..999
-        cooling_seconds: 1..999
-      example: "CFG,10,5"
-      response_on_invalid: "E,ERR,CFG"
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
 
-arduino_to_phone:
-  status:
-    format: "S,<state>,<output_mask>,<temp_ready>,<fault_code>"
-    fields:
-      state: State number below
-      output_mask: Unsigned integer; bit i corresponds to output i
-      temp_ready: 0 or 1
-      fault_code: Fault number below
-    period_ms: 200
-  events:
-    boot: "E,BOOT"
-    cycle_complete: "E,CYCLE"
-    fault: "E,FAULT,<fault_code>"
-    invalid_command: "E,ERR,CMD"
-    invalid_config: "E,ERR,CFG"
-    invalid_mode: "E,ERR,MODE"
-    mode_changed: "E,MODE,<TEST|PRODUCTION>"
+permissions:
+  contents: read
 
-states:
-  0: HOME
-  1: CLAMP_SHEET
-  2: HEATER_POSITION
-  3: HEATING
-  4: HEATER_RETRACT
-  5: MOLD_UP
-  6: MOLD_UP_CONFIRM
-  7: VACUUM_ON
-  8: FORMING
-  9: VACUUM_OFF
-  10: COOLING
-  11: MOLD_DOWN
-  12: RELEASE
-  13: PULLING
-  14: CYCLE_DONE
-  15: READY
-  16: FAULT
-  17: POWER_RECOVERY
-  18: PLUG_DOWN
-  19: PLUG_UP
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
 
-fault_codes:
-  0: NONE
-  1: ESTOP
-  2: CLAMP
-  3: HEATER_IN
-  4: HEAT_TIMEOUT
-  5: HEATER_OUT
-  6: MOLD_UP
-  7: MOLD_UP_LOST
-  8: MOLD_DOWN
-  9: ROLLER
-  10: POWER
-  11: HMI_ESTOP
-  12: PLUG_DOWN
-  13: PLUG_UP
-  14: PLUG_NOT_UP
+    steps:
+      # 1. Download your GitHub repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-output_bits:
-  0: CLAMP_SOL
-  1: HEATER_MOVE_IN
-  2: HEATER_MOVE_OUT
-  3: MOLD_DOWN_SOL
-  4: MOLD_UP_SOL
-  5: VACUUM_PUMP
-  6: VACUUM_SOL
-  7: RELEASE_SOL
-  8: ALARM_BUZZER
-  9: PLUG_SOL
-  10: ROLLER_MOTOR
+      # 2. Install Java 17
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-safety:
-  - TEST mode uses real outputs; only limit-switch response is timer-virtual.
-  - Do not allow mode changes while a cycle is active or any output is energized.
-  - Software ESTOP is not safety-rated.
-  - Physical emergency-stop must remove heater and actuator power independently.
-  - Independent thermal fuse and appropriate guarding are required.
-  - Test with outputs disconnected before commissioning.
+      # 3. Install Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 4. Setup Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # 5. Install Android SDK packages required by Cordova Android 13
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
+      # 6. Check the source files
+      - name: Check project files
+        run: |
+          test -f index.html || {
+            echo "ERROR: index.html is missing from the repository root"
+            exit 1
+          }
+
+          echo "Project files:"
+          ls -la
+
+      # 7. Create Cordova Android project and build APK
+      - name: Build Android APK
+        run: |
+          set -euxo pipefail
+
+          npm install -g cordova
+
+          cordova create app com.thermo.hmi "Thermoforming HMI"
+
+          cd app
+
+          # Copy your website into Cordova
+          cp ../index.html www/index.html
+
+          # Copy optional images
+          if [ -f ../logo.png ]; then
+            cp ../logo.png www/logo.png
+          fi
+
+          if [ -f ../icon.png ]; then
+            cp ../icon.png icon.png
+          fi
+
+          # Configure the Cordova application
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          path = "config.xml"
+
+          tree = ET.parse(path)
+          root = tree.getroot()
+
+          def set_preference(name, value):
+              for item in root.findall("preference"):
+                  if item.get("name") == name:
+                      item.set("value", value)
+                      return
+
+              ET.SubElement(
+                  root,
+                  "preference",
+                  {"name": name, "value": value}
+              )
+
+          set_preference("Orientation", "sensorLandscape")
+          set_preference("Fullscreen", "true")
+          set_preference("android-minSdkVersion", "24")
+          set_preference("android-targetSdkVersion", "30")
+
+          if __import__("os").path.isfile("icon.png"):
+              icons = root.findall("icon")
+              for icon in icons:
+                  root.remove(icon)
+
+              ET.SubElement(root, "icon", {"src": "icon.png"})
+
+          tree.write(
+              path,
+              encoding="UTF-8",
+              xml_declaration=True
+          )
+
+          print("Cordova config.xml configured")
+          PY
+
+          # Add Android platform
+          cordova platform add android@13.0.0
+
+          # Add Arduino serial plugin
+          cordova plugin add cordovarduino
+
+          # Patch old Android plugin Java code for Android compatibility
+          python3 - <<'PY'
+          import glob
+          import os
+
+          def rewrite(src, token, fn):
+              out = ""
+              i = 0
+
+              while True:
+                  j = src.find(token, i)
+
+                  if j < 0:
+                      return out + src[i:]
+
+                  k = j + len(token)
+                  depth = 1
+                  p = k
+
+                  while p < len(src) and depth:
+                      if src[p] == "(":
+                          depth += 1
+                      elif src[p] == ")":
+                          depth -= 1
+                      p += 1
+
+                  if depth != 0:
+                      return src
+
+                  out += src[i:j] + fn(src[k:p-1])
+                  i = p
+
+          def split_args(s):
+              args = []
+              depth = 0
+              cur = ""
+
+              for ch in s:
+                  if ch == "," and depth == 0:
+                      args.append(cur.strip())
+                      cur = ""
+                      continue
+
+                  if ch in "([{":
+                      depth += 1
+                  elif ch in ")]}":
+                      depth -= 1
+
+                  cur += ch
+
+              args.append(cur.strip())
+              return args
+
+          def fix_pending(inner):
+              args = split_args(inner)
+
+              if len(args) != 4:
+                  return "PendingIntent.getBroadcast(" + inner + ")"
+
+              ctx, req, intent, flags = args
+
+              if "setPackage" not in intent:
+                  intent += ".setPackage(" + ctx + ".getPackageName())"
+
+              if (
+                  "0x02000000" not in flags
+                  and "FLAG_MUTABLE" not in flags
+                  and "FLAG_IMMUTABLE" not in flags
+              ):
+                  if flags in ("0", ""):
+                      flags = "0x02000000"
+                  else:
+                      flags = "0x02000000 | " + flags
+
+              return (
+                  "PendingIntent.getBroadcast("
+                  + ", ".join([ctx, req, intent, flags])
+                  + ")"
+              )
+
+          def fix_receiver(inner):
+              args = split_args(inner)
+
+              if len(args) == 2:
+                  return ".registerReceiver(" + inner + ", 4)"
+
+              return ".registerReceiver(" + inner + ")"
+
+          files = [
+              f
+              for f in (
+                  glob.glob("plugins/**/*.java", recursive=True)
+                  + glob.glob("platforms/**/*.java", recursive=True)
+              )
+              if "serial" in f.lower()
+              or "drangies" in f.lower()
+          ]
+
+          changed = 0
+
+          for filename in files:
+              with open(
+                  filename,
+                  encoding="utf-8",
+                  errors="ignore"
+              ) as file:
+                  original = file.read()
+
+              if (
+                  "PendingIntent" not in original
+                  and "registerReceiver" not in original
+              ):
+                  continue
+
+              updated = rewrite(
+                  original,
+                  "PendingIntent.getBroadcast(",
+                  fix_pending
+              )
+
+              updated = rewrite(
+                  updated,
+                  ".registerReceiver(",
+                  fix_receiver
+              )
+
+              if updated != original:
+                  with open(
+                      filename,
+                      "w",
+                      encoding="utf-8"
+                  ) as file:
+                      file.write(updated)
+
+                  print("USB PATCH APPLIED:", filename)
+                  changed += 1
+
+          if changed == 0:
+              print(
+                  "WARNING: USB patch changed nothing. "
+                  "The plugin source may already be compatible "
+                  "or may have a different source structure."
+              )
+          PY
+
+          # Check Android build requirements
+          cordova requirements android
+
+          # Build debug APK
+          cordova build android --debug
+
+      # 8. Upload APK to GitHub Actions artifacts
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: thermoforming-hmi-apk
+          path: app/platforms/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7

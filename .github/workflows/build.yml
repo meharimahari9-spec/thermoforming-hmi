@@ -34,7 +34,6 @@ jobs:
         with:
           node-version: '20'
 
-      # Use the Android SDK already installed on GitHub runner
       - name: Setup Android SDK
         run: |
           set -euxo pipefail
@@ -44,15 +43,13 @@ jobs:
 
           test -d "$ANDROID_HOME"
 
-          if [ -f "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
-            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          else
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+
+          if [ ! -f "$SDKMANAGER" ]; then
             SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
           fi
 
           test -n "$SDKMANAGER"
-
-          echo "Using sdkmanager: $SDKMANAGER"
 
           yes | "$SDKMANAGER" --licenses || true
 
@@ -80,20 +77,17 @@ jobs:
 
           cd app
 
-          # Copy website
           cp ../index.html www/index.html
 
-          # Copy optional logo
           if [ -f ../logo.png ]; then
             cp ../logo.png www/logo.png
           fi
 
-          # Copy optional app icon
           if [ -f ../icon.png ]; then
             cp ../icon.png icon.png
           fi
 
-          # Configure Cordova
+          # Configure Cordova without changing XML namespace
           python3 - <<'PY'
           import os
           import xml.etree.ElementTree as ET
@@ -103,30 +97,38 @@ jobs:
           tree = ET.parse(path)
           root = tree.getroot()
 
+          if root.tag.startswith("{"):
+              namespace = root.tag.split("}")[0][1:]
+              ET.register_namespace("", namespace)
+
+          def tag(name):
+              if root.tag.startswith("{"):
+                  namespace = root.tag.split("}")[0][1:]
+                  return "{" + namespace + "}" + name
+              return name
+
           def set_preference(name, value):
-              for item in root.findall("preference"):
+              for item in root.findall(tag("preference")):
                   if item.get("name") == name:
                       item.set("value", value)
                       return
 
               ET.SubElement(
                   root,
-                  "preference",
+                  tag("preference"),
                   {"name": name, "value": value}
               )
 
           set_preference("Orientation", "sensorLandscape")
           set_preference("Fullscreen", "true")
           set_preference("android-minSdkVersion", "24")
-
-          # Cordova Android 13 uses Android API 34
           set_preference("android-targetSdkVersion", "34")
 
           if os.path.isfile("icon.png"):
-              for icon in root.findall("icon"):
+              for icon in root.findall(tag("icon")):
                   root.remove(icon)
 
-              ET.SubElement(root, "icon", {"src": "icon.png"})
+              ET.SubElement(root, tag("icon"), {"src": "icon.png"})
 
           tree.write(
               path,
@@ -134,7 +136,14 @@ jobs:
               xml_declaration=True
           )
 
-          print("Cordova config updated")
+          check = ET.parse(path).getroot()
+
+          if not check.tag.endswith("widget"):
+              raise SystemExit(
+                  "ERROR: config.xml root element is not widget"
+              )
+
+          print("Cordova config.xml fixed successfully")
           PY
 
           # Add Android platform
@@ -286,10 +295,8 @@ jobs:
               )
           PY
 
-          # Verify Android build environment
           cordova requirements android
 
-          # Build debug APK
           cordova build android --debug
 
       - name: Upload APK

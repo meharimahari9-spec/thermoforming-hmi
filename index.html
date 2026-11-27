@@ -82,6 +82,7 @@ button.chip{color:var(--tx)} button.chip b{color:var(--yel)}
   <img id="logo" src="logo.png" alt="" onerror="this.style.display='none'">
   <div><h1>GEAR ELECTROMECHANICAL ENGINEERING<small>Thermoforming machine control  ·  v5</small></h1></div>
   <div class="sp"></div>
+  <button class="chip" id="modeChip" type="button">MODE <b id="modeTxt">SELECT</b></button>
   <span class="chip" id="usbChip" style="cursor:pointer"><i id="usbDot"></i><span id="usbTxt">USB</span></span>
   <span class="chip" id="tempChip"><span id="tempSim">Temp <b id="tempV">25</b> / <b id="tempSp">180</b> °C</span><span id="tempLive" style="display:none">Heater <b id="tempLiveV">-</b></span></span>
   <span class="chip">Vacuum <b id="vacT">10</b> s · Cooling <b id="fanT">30</b> s</span>
@@ -156,6 +157,33 @@ function save(){try{localStorage.setItem('hmi',JSON.stringify(S))}catch(e){}
  $('cyc').textContent=S.cycles;if(window.lastPart)lastPart();$('tot').textContent=S.target?S.total+' / '+S.target:S.total;$('pcsChipV').textContent=S.pcs;
  $('tempSp').textContent=S.temp;$('vacT').textContent=S.vac;$('fanT').textContent=S.fan}
 
+/* ---------- operating mode ---------- */
+let selectedMode='';
+let controllerMayRun=false;
+function modeName(){return selectedMode==='DRYRUN'?'DRY RUN':selectedMode==='PRODUCTION'?'PRODUCTION':'SELECT'}
+function updateModeChip(){
+ $('modeTxt').textContent=modeName();
+ $('modeChip').disabled=running||controllerMayRun||fault;
+}
+function modeDialog(){
+ if(running||controllerMayRun||fault)return;
+ open(`<h3>Select operating mode</h3>
+ <p>Choose the mode before starting. Mode cannot be changed while the controller is running.</p>
+ <div class="acts"><button id="mdry" class="ok">DRY RUN</button><button id="mprod" class="pri">PRODUCTION</button></div>
+ <div class="acts"><button id="mcancel">Cancel</button></div>`,520);
+ $('mdry').onclick=()=>selectMode('DRYRUN');
+ $('mprod').onclick=()=>selectMode('PRODUCTION');
+ $('mcancel').onclick=close;
+}
+function selectMode(mode){
+ if(running||controllerMayRun||fault)return;
+ selectedMode=mode;
+ if(live&&usb)send('MODE,'+mode);
+ updateModeChip();close();
+ $('msg').style.display='block';$('msg').style.background='#164c3d';
+ $('msg').textContent='Mode selected: '+modeName()+'. Confirm the matching mode on the Arduino controller.';
+}
+
 /* ---------- production counter: call once when a cycle finishes ---------- */
 function onCycleComplete(){S.cycles++;S.total+=S.pcs;save()}
 
@@ -211,7 +239,7 @@ function idleText(){$('step').textContent=usb?'Idle':'No USB link';$('step').sty
 function run(){
  if(!running)return;
  if(idx>=STEPS.length){onCycleComplete();runDone++;idx=0;if(S.target&&S.total>=S.target){targetDone();return}if(S.runCycles&&runDone>=S.runCycles){cyclesDone();return}}
- cycShow();   /* one full cycle done -> count it */
+ cycShow();
  const s=STEPS[idx];
  $('step').textContent=s.n;$('step').style.color='var(--org)';
  STEPS.forEach((_,i)=>$('s'+i).className=i<idx?'done':i===idx?'cur':'');
@@ -226,20 +254,36 @@ function run(){
 function targetDone(){stop();$('step').textContent='Target reached';$('step').style.color='var(--go)';$('msg').style.display='block';$('msg').style.background='#12604a';$('msg').textContent='Target of '+S.target+' pieces reached. Reset the count or raise the target.';doneShown=true}
 function cyclesDone(){stop();$('step').textContent='Done';$('step').style.color='var(--go)';$('msg').style.display='block';$('msg').style.background='#12604a';$('msg').textContent=runDone+' cycle(s) finished.';doneShown=true}
 function start(){
- if(fault||running)return;
+ if(fault||running||controllerMayRun)return;
+ if(!selectedMode){modeDialog();return}
+ if(!usb||!live){
+  $('msg').style.display='block';$('msg').style.background='#6a1f2b';
+  $('msg').textContent='Connect to the Arduino Mega and wait for live controller data before START.';
+  return
+ }
  if(S.target&&S.total>=S.target){targetDone();return}
  runDone=0;doneShown=false;$('msg').style.display='none';
- if(live){running=true;autoRun=true;wantStart=true;sendCfg();setState('RUNNING','run');cycShow();$('bStart').disabled=true;$('bSet').disabled=true;return}
- running=true;idx=0;setState('RUNNING','run');cycShow();$('bStart').disabled=true;$('bSet').disabled=true;run()}
-function stop(){autoRun=false;wantStart=false;doneShown=false;running=false;clearTimeout(timer);clearInterval(tick);paint({});STEPS.forEach((_,i)=>$('s'+i).className='');
+ // Controller, not the HMI, runs both DRY RUN and PRODUCTION sequences.
+ // Send mode/config first; START is sent after the next controller idle status.
+ send('MODE,'+selectedMode);sendCfg();
+ controllerMayRun=true;running=true;autoRun=true;wantStart=true;
+ setState('RUNNING','run');cycShow();$('bStart').disabled=true;$('bSet').disabled=true;updateModeChip();
+}
+function stop(){
+ autoRun=false;wantStart=false;doneShown=false;running=false;controllerMayRun=false;
+ clearTimeout(timer);clearInterval(tick);paint({});STEPS.forEach((_,i)=>$('s'+i).className='');
  $('bar').firstChild.style.width='0';$('bStart').disabled=false;$('bSet').disabled=false;
- fault=false;$('msg').style.display='none'
- setState('READY');idleText();cycShow()}
-function estop(){autoRun=false;wantStart=false;running=false;clearTimeout(timer);clearInterval(tick);paint({});fault=true;send('ESTOP');
+ fault=false;$('msg').style.display='none';
+ setState('READY');idleText();cycShow();updateModeChip()
+}
+function estop(){
+ autoRun=false;wantStart=false;running=false;controllerMayRun=false;clearTimeout(timer);clearInterval(tick);paint({});fault=true;send('ESTOP');
  $('step').textContent='Fault';$('step').style.color='var(--red)';setState('FAULT','fault');
  $('msg').style.display='block';$('msg').style.background='#6a1f2b';$('msg').textContent='FAULT: emergency stop. Press STOP to reset.';
- $('bStart').disabled=true;$('bSet').disabled=true}
+ $('bStart').disabled=true;$('bSet').disabled=true;updateModeChip()
+}
 $('bStart').onclick=start;$('bStop').onclick=()=>{send('STOP');holdUntil=Date.now()+600;stop();$('bStart').disabled=false};$('bEstop').onclick=estop;
+$('modeChip').onclick=modeDialog;
 
 /* ---------- modals ---------- */
 function open(html,w){$('modal').style.width='min('+(w||440)+'px,94%)';$('modal').innerHTML=html;$('ov').style.display='flex'}
@@ -263,20 +307,22 @@ function pcsDialog(){
  $('rs').onclick=()=>{if(confirm('Reset production count?')){S.cycles=0;S.total=0;save();$('msg').style.display='none';idleText();close()}};
  $('ok').onclick=close;
 }
-$('pcsChip').onclick=pcsDialog;$('cycBox').onclick=()=>{if(!running)pcsDialog()};
-$('bSet').onclick=()=>{open(`<h3>Settings</h3>
+$('pcsChip').onclick=pcsDialog;$('cycBox').onclick=()=>{if(!running&&!controllerMayRun)pcsDialog()};
+$('bSet').onclick=()=>{if(running||controllerMayRun)return;open(`<h3>Settings</h3>
  <div class="grps">${dpHTML('temp','Heater temperature (°C)',S.temp,3,300,50)}${dpHTML('vac','Vacuum time (s)',S.vac,3,999,1)}${dpHTML('fan','Cooling time (s)',S.fan,3,999,1)}${dpHTML('rc','Cycles to run (0 = no limit)',S.runCycles,4,9999)}${dpHTML('tg','Target pieces (0 = no limit, max 5000)',S.target,4,5000)}</div>
  <div class="acts"><button id="c">Cancel</button><button class="ok" id="s">Save</button></div>`,1040);
  dpInit();$('c').onclick=close;
  $('s').onclick=()=>{S.temp=dpVal('temp');S.vac=dpVal('vac');S.fan=dpVal('fan');S.runCycles=dpVal('rc');S.target=dpVal('tg');save();cycShow();if(live)sendCfg();close()}};
-$('bOff').onclick=()=>{open(`<h3>Shut down the HMI?</h3><p>The HMI closes and the machine is stopped.</p>
+$('bOff').onclick=()=>{open(`<h3>Shut down the HMI?</h3><p>HMI shutdown does not replace the machine's physical E-STOP. Stop the machine safely before closing.</p>
  <div class="acts"><button id="c">Cancel</button><button class="pri" id="y">Shut down</button></div>`);
  $('c').onclick=close;$('y').onclick=()=>{send('SHUTDOWN_CONFIRM');if(navigator.app&&navigator.app.exitApp)navigator.app.exitApp();close()}};
 
 /* ---------- USB (cordovarduino) <-> Arduino Mega ----------
-   HMI -> Mega : START | STOP | ESTOP | CFG,<vacuum s>,<cooling s>
+   HMI -> Mega : MODE,DRYRUN | MODE,PRODUCTION | START | STOP | ESTOP | CFG,<vacuum s>,<cooling s>
    Mega -> HMI : S,<state>,<outputMask>,<heaterReady>   (every 200 ms)
-                 E,CYCLE                                (one cycle finished)  */
+                 E,CYCLE                                (one cycle finished)
+   IMPORTANT: Mega firmware must implement MODE commands and DRY RUN timer
+   sequence. This HMI does not drive outputs or run a software-only cycle. */
 const ST2STEP={1:0,2:1,3:2,4:3,5:4,6:4,18:5,7:6,8:6,19:7,9:8,10:8,11:9,12:10,13:11,14:11};
 const BITS=['CLAMP_SOL','HEATER_MOVE_IN','HEATER_MOVE_OUT','MOLD_DOWN_SOL','MOLD_UP_SOL','VACUUM_PUMP','VACUUM_SOL','RELEASE_SOL',null,'PLUG_SOL','MOTOR_RELAY'];
 function send(cmd){try{if(usb&&window.serial)serial.write(cmd+'\n')}catch(e){}}
@@ -308,35 +354,48 @@ function applyLive(){
  const idle=(st===0||st===15),flt=(st===16||st===17);
  const clearSteps=()=>{STEPS.forEach((_,i)=>$('s'+i).className='');$('bar').firstChild.style.width='0'};
  if(flt){
-  running=false;autoRun=false;wantStart=false;fault=true;doneShown=false;
+  running=false;autoRun=false;wantStart=false;controllerMayRun=false;fault=true;doneShown=false;
   paint({o});clearSteps();
   $('step').textContent=st===17?'Power recovery':'Fault';$('step').style.color='var(--red)';setState('FAULT','fault');
   $('msg').style.display='block';$('msg').style.background='#6a1f2b';
   $('msg').textContent=st===17?'POWER RECOVERY: machine was stopped mid-cycle. Press STOP to reset.':'FAULT: stopped by the controller. Press STOP to reset.';
-  $('bStart').disabled=true;$('bSet').disabled=true;return}
+  $('bStart').disabled=true;$('bSet').disabled=true;updateModeChip();return}
  if(fault){fault=false;if(!doneShown)$('msg').style.display='none'}
  if(idle){
   if(wantStart&&st===15){wantStart=false;send('START')}
   if(!autoRun){
-   running=false;paint({o});clearSteps();
+   running=false;controllerMayRun=false;paint({o});clearSteps();
    if(!doneShown){$('step').textContent=st===0?'Waiting for home':'Idle';$('step').style.color='var(--blue)'}
    setState('READY');$('bStart').disabled=false;$('bSet').disabled=false;
+   updateModeChip();
   }else{$('step').textContent=st===0?'Waiting for home':'Next cycle';$('step').style.color='var(--blue)'}
   cycShow();return}
- running=true;const k=ST2STEP[st],s=STEPS[k];
- $('step').textContent=s.n;$('step').style.color='var(--org)';
+ running=true;controllerMayRun=true;const k=ST2STEP[st],s=STEPS[k];
+ $('step').textContent=s?s.n:'Controller step '+st;$('step').style.color='var(--org)';
  STEPS.forEach((_,i)=>$('s'+i).className=i<k?'done':i===k?'cur':'');
  $('bar').firstChild.style.width=((k+1)/STEPS.length*100)+'%';
- paint(Object.assign({},s,{o}));setState('RUNNING','run');
- $('bStart').disabled=true;$('bSet').disabled=true;cycShow();
+ if(s)paint(Object.assign({},s,{o}));else paint({o});
+ setState('RUNNING','run');
+ $('bStart').disabled=true;$('bSet').disabled=true;cycShow();updateModeChip();
 }
 setInterval(()=>{
  if(live&&Date.now()-lastRx>2500){
-  live=false;autoRun=false;wantStart=false;running=false;fault=false;
+  live=false;
+  // Do not assume the machine stopped when USB is lost. Keep controls locked;
+  // controller continues its own sequence. Reconnect/status resolves actual state.
   $('tempSim').style.display='';$('tempLive').style.display='none';$('usbDot').style.background='var(--red)';
-  paint({});STEPS.forEach((_,i)=>$('s'+i).className='');$('bar').firstChild.style.width='0';
-  setState('READY');idleText();$('bStart').disabled=false;$('bSet').disabled=false;
-  $('msg').style.display='block';$('msg').style.background='#6a1f2b';$('msg').textContent='USB link lost. The controller keeps running its own sequence.';cycShow();
+  if(controllerMayRun||running){
+   running=true;controllerMayRun=true;autoRun=true;
+   setState('LINK LOST','fault');$('step').textContent='Controller running / status unknown';$('step').style.color='var(--yel)';
+   $('msg').style.display='block';$('msg').style.background='#6a1f2b';$('msg').textContent='USB link lost. Arduino continues its sequence autonomously. Do not change mode; use the physical STOP/E-STOP if needed.';
+   $('bStart').disabled=true;$('bSet').disabled=true;
+  }else{
+   running=false;autoRun=false;wantStart=false;
+   paint({});STEPS.forEach((_,i)=>$('s'+i).className='');$('bar').firstChild.style.width='0';
+   setState('READY');idleText();$('bStart').disabled=false;$('bSet').disabled=false;
+   $('msg').style.display='block';$('msg').style.background='#6a1f2b';$('msg').textContent='USB link lost. Reconnect to the Arduino controller.';
+  }
+  updateModeChip();cycShow();
  }},500);
 /* ---- USB connection: tries several drivers, shows the real error, retries by itself ---- */
 const DRIVERS=[{},{driver:'Ch34xSerialDriver'},{driver:'CdcAcmSerialDriver'},{driver:'FtdiSerialDriver'}];
@@ -374,7 +433,7 @@ function usbDiag(){
  const age=lastRx?Math.round((Date.now()-lastRx)/1000)+' s ago':'never';
  const esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
  open(`<h3>USB status</h3>
- <div style="font-size:15px;line-height:1.6">App version: <b>v5</b><br>USB plugin loaded: <b>${window.serial?'yes':'NO'}</b><br>Port open: <b>${usb?'yes':'no'}</b><br>Data from the Mega: <b>${live?'yes':'no'}</b> (last: ${age})<br>Last error: <b>${esc(lastErr||'-')}</b></div>
+ <div style="font-size:15px;line-height:1.6">App version: <b>v5</b><br>USB plugin loaded: <b>${window.serial?'yes':'NO'}</b><br>Port open: <b>${usb?'yes':'no'}</b><br>Data from the Mega: <b>${live?'yes':'no'}</b> (last: ${age})<br>Selected mode: <b>${esc(modeName())}</b><br>Controller may be running: <b>${controllerMayRun?'yes':'no'}</b><br>Last error: <b>${esc(lastErr||'-')}</b></div>
  <div style="font:12px monospace;background:#0b1522;border-radius:8px;padding:8px;margin-top:8px;white-space:pre-wrap;max-height:130px;overflow:auto">${esc(dl.join('\n')||'-')}</div>
  <div class="acts"><button id="c">Close</button><button class="ok" id="rc2">Reconnect</button></div>`,720);
  $('c').onclick=close;$('rc2').onclick=()=>{usb=false;connecting=false;clearTimeout(connTimer);close();usbConnect()};
@@ -395,7 +454,7 @@ function fit(){
 }
 addEventListener('resize',fit);addEventListener('orientationchange',()=>setTimeout(fit,200));
 fit();setTimeout(fit,300);
-save();idleText();cycShow();
+save();idleText();cycShow();updateModeChip();
 </script>
 </body>
 </html>
